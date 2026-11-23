@@ -38,7 +38,17 @@ RUN set -eux; \
     npm cache clean --force
 
 # 构建期冒烟：引擎模块可加载
-RUN node -e "import('@deepseek-ai/dsh/package.json', {with:{type:'json'}}).then(p=>console.log('dsh', p.version))"
+#
+# npm -g 装的包落在全局 node_modules 里。ESM 的 import() 不会去全局目录解析
+# 裸说明符（base 是 /[eval] 更是无从谈起），所以直接用 `npm root -g` 拿到
+# 真实路径再读文件，顺带断言 dsh CLI 已经在 PATH 上。
+RUN set -eux; \
+    export GLOBAL_ROOT="$(npm root -g)"; \
+    echo "global root: $GLOBAL_ROOT"; \
+    node -e "const fs=require('fs'),path=require('path'); \
+      const p=JSON.parse(fs.readFileSync(path.join(process.env.GLOBAL_ROOT,'@deepseek-ai/dsh','package.json'),'utf8')); \
+      console.log('dsh', p.version)"; \
+    command -v dsh
 
 # —— 移动端 UX 插件预置（安装 + 激活）——
 COPY mobile-comfort /opt/dsh-plugins/dsh-mobile-comfort
