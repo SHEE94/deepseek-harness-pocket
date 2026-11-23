@@ -3,6 +3,6 @@
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108"
     android:tint="#FFFFFFFF">
-    <path android:pathData="M 71.24 39.54 C 78.25 47.90 78.25 60.10 71.24 68.46 C 64.22 76.83 52.21 78.95 42.75 73.49 C 33.29 68.03 29.12 56.57 32.86 46.30 C 36.59 36.04 47.15 29.95 57.91 31.84" android:strokeColor="#FFFFFFFF" android:strokeWidth="4.725" android:strokeLineCap="round"/>
-    <path android:pathData="M51.08 45.00 L56.92 45.00 A6.08 6.08 0 0 1 63.00 51.08 L63.00 56.92 A6.08 6.08 0 0 1 56.92 63.00 L51.08 63.00 A6.08 6.08 0 0 1 45.00 56.92 L45.00 51.08 A6.08 6.08 0 0 1 51.08 45.00 Z" android:fillColor="#FFFFFFFF"/>
+    <path android:pathData="M 43.46 34.40 C 53.92 30.59 65.57 35.22 70.57 45.17 C 75.56 55.11 72.32 67.22 63.02 73.34 C 53.72 79.46 41.31 77.64 34.16 69.11" android:strokeColor="#FFFFFFFF" android:strokeWidth="5.175" android:strokeLineCap="round"/>
+    <path android:pathData="M39.04 38.14 L42.64 38.14 A4.95 4.95 0 0 1 47.59 43.09 L47.59 46.69 A4.95 4.95 0 0 1 42.64 51.64 L39.04 51.64 A4.95 4.95 0 0 1 34.09 46.69 L34.09 43.09 A4.95 4.95 0 0 1 39.04 38.14 Z" android:fillColor="#FFFFFFFF"/>
 </vector>

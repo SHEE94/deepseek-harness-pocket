@@ -37,15 +37,15 @@ MUTED_DARK = "#7C8BA1"
 # with the engine chip nested in that opening. Ring = the sealed runtime,
 # chip = the engine, gap = the seam between device and runtime.
 SYM = 64.0
-RING_CX = 35.0          # ring centre, pushed down-right of the tile centre
-RING_CY = 35.0
-RING_R = 21.0           # centreline radius
-RING_W = 4.5            # stroke width
+RING_CX = 29.3          # ring centre, offset down-right of the tile centre
+RING_CY = 32.9
+RING_R = 19.5           # centreline radius
+RING_W = 4.6            # stroke width
 RING_GAP = (140.0, 250.0)  # gap spans 140deg..250deg (upper left)
 CORE_S = 12.0           # core side
 CORE_R = 4.4            # core corner radius
-CORE_CX = 26.0          # core centre, nested in the ring opening
-CORE_CY = 26.0
+CORE_CX = 20.3          # core centre, nested in the ring opening
+CORE_CY = 23.9
 
 # ------------------------------------------------------------- wordmark -----
 # Monoline geometric capitals, cap height 100, stroke 11, round caps.
@@ -253,15 +253,16 @@ def draw_prims(d, prims, ox, oy, scale, color, width, caps="round"):
 
 # -------------------------------------------------------------- symbol ------
 def symbol_prims():
-    """Ring arc (the seam at upper right) as an arc primitive."""
-    a0, a1 = RING_GAP[1], RING_GAP[0] + 360.0   # draw clockwise from 320deg
-    return [("arc", SYM / 2, SYM / 2, RING_R, a0, a1)]
+    """The open ring: an arc that sweeps the long way round, leaving a gap
+    across the upper left where the engine chip sits."""
+    a0, a1 = RING_GAP[1], RING_GAP[0] + 360.0
+    return [("arc", RING_CX, RING_CY, RING_R, a0, a1)]
 
 
 def core_path(cx=None, cy=None, side=None, r=None, ox=0.0, oy=0.0, prec=2):
     """Rounded-square core as an SVG path."""
     if cx is None:
-        cx = cy = SYM / 2
+        cx, cy = CORE_CX, CORE_CY
     if side is None:
         side = CORE_S
     if r is None:
@@ -400,7 +401,7 @@ def render_icon(size, radius_ratio=0.225, ring=PAPER, core=ACCENT, bg=INK, ss=4)
     k = n / SYM
     draw_prims(d, symbol_prims(), 0, 0, k, hex_rgb(ring), RING_W)
     # core
-    cx = cy = SYM / 2
+    cx, cy = CORE_CX, CORE_CY
     x0, y0 = (cx - CORE_S / 2) * k, (cy - CORE_S / 2) * k
     x1, y1 = (cx + CORE_S / 2) * k, (cy + CORE_S / 2) * k
     d.rounded_rectangle([x0, y0, x1, y1], radius=CORE_R * k, fill=hex_rgb(core))
@@ -416,7 +417,7 @@ def render_circle_icon(size, ring=PAPER, core=ACCENT, bg=INK, ss=4):
     d = ImageDraw.Draw(img)
     k = n / SYM
     draw_prims(d, symbol_prims(), 0, 0, k, hex_rgb(ring), RING_W)
-    cx = cy = SYM / 2
+    cx, cy = CORE_CX, CORE_CY
     x0, y0 = (cx - CORE_S / 2) * k, (cy - CORE_S / 2) * k
     x1, y1 = (cx + CORE_S / 2) * k, (cy + CORE_S / 2) * k
     d.rounded_rectangle([x0, y0, x1, y1], radius=CORE_R * k, fill=hex_rgb(core))
@@ -461,7 +462,7 @@ def render_lockup(stacked=False, primary=INK, secondary=MUTED, ring=PAPER, core=
     d = ImageDraw.Draw(img)
     k = sym * s / SYM
     draw_prims(d, symbol_prims(), 0, 0, k, hex_rgb(ring), RING_W)
-    cx = cy = SYM / 2
+    cx, cy = CORE_CX, CORE_CY
     d.rounded_rectangle([(cx - CORE_S / 2) * k, (cy - CORE_S / 2) * k,
                          (cx + CORE_S / 2) * k, (cy + CORE_S / 2) * k],
                         radius=CORE_R * k, fill=hex_rgb(core))
@@ -650,12 +651,17 @@ def android_vector(foreground=True, monochrome=False):
     and 'A' arcs with a 320deg sweep render wrong on-device.
     """
     k = 72.0 / SYM
-    c = 54.0
-    r = RING_R * k
-    w = RING_W * k
+    # The tile is 108dp; the mark lives inside the 72dp safe zone, so the 64-unit
+    # design grid maps 1:1 onto that zone with an 18dp margin on each side.
+    m = 18.0
+    s = 72.0 / SYM
+    w = RING_W * s
     ring = symbol_prims()[0]
-    ring_path = arc_to_beziers(c, c, r, ring[4], ring[5])
-    core = core_path(cx=c, cy=c, side=CORE_S * k, r=CORE_R * k)
+    ring_cx = m + RING_CX * s
+    ring_cy = m + RING_CY * s
+    ring_path = arc_to_beziers(ring_cx, ring_cy, RING_R * s, ring[4], ring[5])
+    core = core_path(cx=m + CORE_CX * s, cy=m + CORE_CY * s,
+                     side=CORE_S * s, r=CORE_R * s)
     body = ""
     if monochrome:
         body += (f'    <path android:pathData="{ring_path}" android:strokeColor="#FFFFFFFF" '
