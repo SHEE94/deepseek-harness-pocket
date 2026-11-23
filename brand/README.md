@@ -10,31 +10,31 @@
 | 项 | 值 |
 |---|---|
 | 母体品牌 | DeepSeek Harness（DSH） |
-| 产品名（英文） | **DSH Pocket** |
-| 产品名（中文） | **口袋 DSH** |
+| 产品名 | **DSH Pocket** |
 | 正式全称 | DeepSeek Harness Pocket |
-| 定位语（英文） | Complete agent runtime for unrooted Android |
-| 定位语（中文） | 未 root Android 上的完整 Agent 运行时 |
+| 定位语 | Complete agent runtime for unrooted Android |
 
 **命名理由**
 
-- **口袋** 直接来自项目自己的承诺（README 首句「装进口袋」）：整套 Linux + Agent 运行时装进口袋。
-- **Pocket** 与既有工程事实一一对应：`proot` 模拟的 glibc 用户态、`node`/`bash` 二进制、
-  官方 Web GUI 前端、subagent 与会话搜索，全部在手机本机完成，不依赖 PC、不依赖 root、不依赖服务端。
-- 名字不声称与 DeepSeek 官方有隶属关系：`DSH` 只作为引擎来源标识出现（母体品牌沿用），子品牌独立。
+- **DSH** 沿用母体品牌缩写，只承担「引擎来源」这一标识作用，不声明与 DeepSeek 官方有隶属关系。
+- **Pocket** 是软件发行里的标准词，指**自包含、可独立携带的精简发行版**：整套运行时
+  （proot 模拟的 glibc 用户态、node/bash 工具链、引擎、Web GUI 前端）打成一套 appliance 产物，
+  装机即用，不依赖宿主环境。这与工程事实一一对应：不依赖 PC、不依赖 root、不依赖服务端。
+- 名称是描述性的，不是比喻。
 
 **未采用的备选**（若日后要换名，标志与字标可复用，只需替换字标）
 
 | 备选 | 语义 | 未采用的原因 |
 |---|---|---|
-| 方舟 DSH / DSH Ark | 密封的舱，载着一整套自持世界 | 中文语境与「方舟编译器 / 方舟 S-APP」撞名，检索噪声大 |
-| DSH 舱 / DSH Vessel | 容器化的运行时 | 中文单字「舱」不成词，冷、难叫 |
-| DSH 舵 / DSH Helm | 掌控 agent | 只表达「操控」，丢了「整套运行时都在本机」这一核心差异点 |
+| DSH Embedded | 嵌入式发行 | 暗示面向 MCU / 固件场景，与「跑完整 Linux 用户态 + Agent」的实际形态不符 |
+| DSH On-Device | 本机执行 | 描述的是部署方式而非产品形态，不构成名字 |
+| DSH Standalone | 独立发行 | 太泛，检索区分度低 |
 
 **禁则**
 
 - 不使用 DeepSeek 鲸鱼标志（商标风险，且暗示官方背书）。
 - 不在应用名、商店页、文档里写「官方」「DeepSeek 出品」。
+- **不设中文产品名**：产品标识只有 `DSH Pocket` 一种写法，不做中英混排或本地化译名。
 - `applicationId = com.dsh.android` 恰好 15 字符是硬约束（Termux 前缀 ELF 等长补丁），**任何改名都不许碰包名**。
 
 ---
@@ -102,7 +102,7 @@
 
 - 界面字体：跟随系统（Web GUI 用上游 DSH 主题字体 Montserrat）。
 - 文档与终端片段：等宽（Consolas / JetBrains Mono / ui-monospace）。
-- 中英文之间留一个空格：`口袋 DSH`、`DeepSeek Harness Pocket`。
+- 品牌词与中文之间留一个空格：`DSH Pocket`、`DeepSeek Harness Pocket`。
 
 ---
 

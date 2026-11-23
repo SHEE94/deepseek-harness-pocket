@@ -100,7 +100,7 @@ jobs:
           ( cd out && sha256sum install.sh a1-termux-bootstrap.sh \
               a2-guest-dsh-serve.sh a2-termux-boot-dsh.sh > SHA256SUMS-installer.txt )
           cat out/SHA256SUMS-installer.txt
-      - name: Shell asset-name gate (finder contract: *-rootfs.tar* + SHA256SUMS.txt)
+      - name: "Shell asset-name gate (finder contract: *-rootfs.tar* + SHA256SUMS.txt)"
         run: |
           set -euo pipefail
           # 壳 AssetInstaller.findPlan 按「*-rootfs.tar* 取最新 + SHA256SUMS.txt 查表」
