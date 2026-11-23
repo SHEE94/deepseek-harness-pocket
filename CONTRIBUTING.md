@@ -88,6 +88,13 @@ the technical findings are valuable, but **identifying details are not**:
 - **No raw device captures.** Screenshots, logcat dumps, and diagnostic zips
   live in the gitignored `emu-assets/` directory. Only deliberately
   sanitized evidence images belong in `docs/images/`.
+- **Publish app imagery only.** The repository carries the app's own visuals:
+  the icon and wordmark (`brand/icons`, `brand/logo`), the brand sheet
+  (`brand/preview/brand-sheet.png`), the running app
+  (`brand/preview/device-run.png`), and the app UI evidence in `docs/images/`.
+  Launcher home screens, system settings pages, and app-info pages do **not**
+  belong in the repository: they carry device attribution (location, WiFi
+  name, OEM apps, account nickname) and add nothing to the project.
 - **Diagnostic exports identify the device.** The zip produced by
   `DiagnosticsExporter` contains the device model, OS version, and engine
   logs. Scrub it before attaching it to a public issue.

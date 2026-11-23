@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Launcher label. Brand spec: brand/README.md -->
+    <!-- Launcher label. Product identity is English-only: no localized name.
+         Brand spec: brand/README.md -->
     <string name="app_name">DSH Pocket</string>
 </resources>

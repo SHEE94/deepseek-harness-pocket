@@ -1,8 +1,8 @@
-# DSH on Android
+# DSH Pocket
 
 把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 完整跑在**未 root 的 Android 手机**（arm64-v8a）上：引擎 = npm 原版 `@deepseek-ai/dsh` 零补丁，运行环境 = proot 模拟的 glibc Linux，界面 = 官方 Web GUI + 移动端 UX 适配层。
 
-**不是阉割版聊天框**：bash/PTY/文件工具/子代理/会话搜索全量可用，装进口袋。
+**不是阉割版聊天框**：bash / PTY / 文件工具 / 子代理 / 会话搜索全量可用，全部在本机执行，不依赖 PC、不依赖 root、不依赖服务端。
 
 ## 快速开始
 
@@ -31,8 +31,9 @@ proot-distro login ubuntu -- bash /usr/local/bin/dsh-serve
 | [scripts/](scripts/README.md) | `install.sh` 一键安装器 · b0 拉资产 · a1/a2 装机与守护 · b1 appliance 镜像 · b2 推资产 · b3 proot 供应 · seed · dev/ 测试件 |
 | [mobile-comfort/](mobile-comfort) | 移动端 UX 插件（composer 下工具片 + 触摸人体工学样式层；有头无浏览器行为测试） |
 | [android-shell/](android-shell/README.md) | 壳 APK 工程（前台服务托管、资产管线、救援阶梯、诊断导出、无 adb 引导） |
+| [brand/](brand/README.md) | 品牌资产（标志 / 字标 / 图标 / 规范文档 + 生成脚本） |
 | [docs/](docs) | [真机验收清单](docs/device-acceptance.md) · [设备实测档案与踩坑录](docs/device-field-notes.md) · [proot 构建配方报告](docs/proot-build-recipe-report.md) · [首推清单](docs/first-push.md) |
-| [docs/images/](docs/images) | 已脱敏的验收证据截图 |
+| [docs/images/](docs/images) | app 界面证据截图（已脱敏） |
 | [.github/workflows/](.github/workflows) | `build.yml`（含 nightly 金丝雀）· `release.yml`（tag → 全产物发布） |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南：硬约束、改动须知、测试要求、隐私红线 |
 
@@ -56,7 +57,9 @@ proot-distro login ubuntu -- bash /usr/local/bin/dsh-serve
 - 真实机型名、adb guid、serial 前缀 → 统一替换为「测试平板 A / 测试手机 B」
 - 局域网 IP、路由器网段分配 → 不入库
 - 维护者本机的绝对路径、用户名 → 改为仓库相对路径与环境变量
-- 真机截图、logcat dump、profile 备份 → 全部留在 gitignored 的 `emu-assets/`，仓库只保留 `docs/images/` 里人工筛过的脱敏证据图
+- 真机截图、logcat dump、profile 备份 → 全部留在 gitignored 的 `emu-assets/`
+- 仓库里只放 **app 自身的图**：图标与字标（`brand/icons`、`brand/logo`）、品牌总览（`brand/preview/brand-sheet.png`）、app 运行态截图（`brand/preview/device-run.png`）、`docs/images/` 里的 app 界面证据
+- 桌面、系统设置、应用信息页这类真机上下文截图**一律不入库**（带位置、WiFi 名、厂商应用等设备归属信息）
 - 诊断导出包（`DiagnosticsExporter` 产出的 zip）含设备型号与日志，**贴到公开 issue 前请先自查脱敏**（见 [验收清单 §5](docs/device-acceptance.md)）
 
 新增内容请遵守 [CONTRIBUTING.md](CONTRIBUTING.md) 的隐私红线。

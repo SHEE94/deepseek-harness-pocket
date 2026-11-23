@@ -502,32 +502,6 @@ def font(size, bold=True):
     return ImageFont.load_default()
 
 
-def cjk_font(size):
-    """CJK-capable font. Probe per-OS locations, then fall back to the Latin
-    font (which renders boxes for CJK but never crashes the build)."""
-    candidates = [
-        ("C:/Windows/Fonts/msyh.ttc", 0),
-        ("C:/Windows/Fonts/msyhl.ttc", 0),
-        ("C:/Windows/Fonts/NotoSansSC-VF.ttf", 0),
-        ("C:/Windows/Fonts/simhei.ttf", 0),
-        ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
-        ("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", 0),
-        ("/usr/share/fonts/opentype/noto/NotoSansSC-Regular.otf", 0),
-        ("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", 0),
-        ("/usr/share/fonts/truetype/arphic/uming.ttc", 0),
-        ("/System/Library/Fonts/PingFang.ttc", 0),
-        ("/System/Library/Fonts/Hiragino Sans GB.ttc", 0),
-        ("/Library/Fonts/Arial Unicode.ttf", 0),
-    ]
-    for path, idx in candidates:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size, index=idx)
-            except Exception:
-                continue
-    return font(size, bold=False)
-
-
 def brand_sheet():
     W, H = 1600, 1180
     img = Image.new("RGB", (W, H), hex_rgb(MIST))
@@ -586,17 +560,12 @@ def brand_sheet():
         d.text((sx, 1002), col, font=f_mono, fill=hex_rgb(MUTED))
         sx += 150
 
-    # chinese name
-    try:
-        cn = cjk_font(58)
-        # These two lines mix CJK and Latin. A Latin-only font renders the
-        # CJK glyphs as tofu boxes, so use the CJK font for both lines.
-        cn_small = cjk_font(16)
-        d.text((900, 862), "口袋 DSH", font=cn, fill=hex_rgb(INK))
-        d.text((900, 936), "中文名 / Chinese name", font=cn_small, fill=hex_rgb(MUTED))
-        d.text((900, 962), "正式全称 DeepSeek Harness Pocket", font=cn_small, fill=hex_rgb(MUTED))
-    except Exception as exc:  # pragma: no cover
-        d.text((900, 880), "CJK font unavailable: %s" % exc, font=f_p, fill=hex_rgb(MUTED))
+    # product identity (English only — no localized name)
+    d.text((900, 862), "DSH Pocket", font=f_title, fill=hex_rgb(INK))
+    d.text((900, 936), "Product name", font=f_p, fill=hex_rgb(MUTED))
+    d.text((900, 962), "Formal name: DeepSeek Harness Pocket", font=f_p, fill=hex_rgb(MUTED))
+    d.text((900, 988), "Positioning: complete agent runtime for unrooted Android",
+           font=f_p, fill=hex_rgb(MUTED))
 
     img.save(os.path.join(PREVIEW, "brand-sheet.png"))
     print("   preview/brand-sheet.png")

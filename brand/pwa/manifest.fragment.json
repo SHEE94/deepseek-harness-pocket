@@ -1,8 +1,8 @@
 {
-  "_comment": "PWA manifest fragment for a DSH Pocket web shell. Merge into the served web manifest; upstream dsh-web-frontend owns its own manifest today, so this file is the drop-in for a custom shell.",
+  "_comment": "PWA manifest fragment for a DSH Pocket web shell. Merge into the served web manifest; upstream dsh-web-frontend owns its own manifest today, so this file is the drop-in for a custom shell. Product identity is English-only.",
   "name": "DSH Pocket — DeepSeek Harness for Android",
-  "short_name": "口袋 DSH",
-  "description": "未 root Android 上的完整 Agent 运行时：bash / PTY / 文件工具 / 子代理 / 会话搜索，全部在本机。",
+  "short_name": "DSH Pocket",
+  "description": "Complete agent runtime for unrooted Android: bash, PTY, file tools, subagents and session search, all executed on-device.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
