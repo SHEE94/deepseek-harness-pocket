@@ -30,8 +30,10 @@ jobs:
             dsh: ""
           - channel: canary
             dsh: "latest"
-    # 金丝雀只在 push/schedule 跑，PR 不必等两份镜像
-    if: matrix.channel == 'release' || github.event_name != 'pull_request'
+    # 金丝雀只在 push/schedule 跑，PR 不必等两份镜像。
+    # 注意：`matrix` 上下文在 job 级 `if` 里不可用（GitHub 报
+    # "Unrecognized named-value: 'matrix'"），所以这个门放在 step 级，
+    # step 级的 `if` 是支持 matrix 的。
     steps:
       - uses: actions/checkout@v4
 
@@ -48,6 +50,7 @@ jobs:
           echo "nightly=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
       - name: Build appliance (includes in-image enablement assertions)
+        if: matrix.channel == 'release' || github.event_name != 'pull_request'
         working-directory: .
         env:
           DSH_VERSION: ${{ steps.ver.outputs.dsh }}
@@ -55,6 +58,7 @@ jobs:
         run: bash scripts/b1-build-appliance.sh
 
       - name: Runtime smoke — serve, reach the token URL, tear down
+        if: matrix.channel == 'release' || github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           IMG=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^dsh-appliance:' | head -1)
@@ -75,6 +79,7 @@ jobs:
           docker exec dsh-smoke dsh --profile web --dump-config | grep -q 'dsh-mobile-comfort'
 
       - name: Upload artifacts
+        if: matrix.channel == 'release' || github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: appliance-${{ matrix.channel }}
