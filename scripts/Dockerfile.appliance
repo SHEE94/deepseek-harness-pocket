@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# Dockerfile.appliance — DSH Android appliance（路线 B 的"独立系统"镜像）
+# 目标平台：linux/arm64（glibc Ubuntu 24.04）。构建上下文 = 仓库根目录
+# （b1-build-appliance.sh 负责传 -f 与 context）。
+# 产物经 `docker buildx --output type=oci|tar` 导出，手机 proot-distro install。
+# =============================================================================
+FROM --platform=linux/arm64 ubuntu:24.04
+
+ARG NODE_VERSION=24.9.0
+ARG DSH_VERSION=latest
+ARG USE_CN_MIRROR=0
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl xz-utils git build-essential python3 \
+      ripgrep tmux procps iproute2 less openssh-client \
+ && rm -rf /var/lib/apt/lists/* \
+ && git config --system core.fileMode false
+
+# 官方 Node（glibc linux-arm64）。npm postinstall（@vscode/ripgrep、node-pty 编译）
+# 在真 arm64 glibc 环境完成，产物随镜像原样上机。
+RUN set -eux; \
+    BASE=https://nodejs.org/dist; \
+    if [ "$USE_CN_MIRROR" = "1" ]; then BASE=https://npmmirror.com/mirrors/node; fi; \
+    curl -fsSL "$BASE/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-arm64.tar.xz" \
+      | tar -xJ -C /usr/local --strip-components=1; \
+    node -v; npm -v
+
+# `dsh plugin …` 是转发到 pnpm 的薄壳，profile 装机需要 pnpm 在 PATH。
+RUN set -eux; \
+    if [ "$USE_CN_MIRROR" = "1" ]; then \
+      npm config set registry https://registry.npmmirror.com; \
+      export npm_config_disturl=https://npmmirror.com/mirrors/node; \
+      export npm_config_ripgrep_mirror=https://npmmirror.com/mirrors/ripgrep/; \
+    fi; \
+    npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" pnpm@11; \
+    npm cache clean --force
+
+# 构建期冒烟：引擎模块可加载
+RUN node -e "import('@deepseek-ai/dsh/package.json', {with:{type:'json'}}).then(p=>console.log('dsh', p.version))"
+
+# —— 移动端 UX 插件预置（安装 + 激活）——
+COPY mobile-comfort /opt/dsh-plugins/dsh-mobile-comfort
+COPY scripts/seed-mobile-comfort.mjs /usr/local/lib/dsh-appliance/seed-mobile-comfort.mjs
+RUN set -eux; \
+    dsh plugin --profile web add file:/opt/dsh-plugins/dsh-mobile-comfort; \
+    node /usr/local/lib/dsh-appliance/seed-mobile-comfort.mjs; \
+    # 激活断言：dump-config 必须能看见 mobile-comfort 行（构建即验证，漂移即失败）
+    dsh --profile web --dump-config | grep -q 'dsh-mobile-comfort'
+
+# 监督入口（与路线 A 完全同源）
+COPY scripts/a2-guest-dsh-serve.sh /usr/local/bin/dsh-serve
+RUN chmod +x /usr/local/bin/dsh-serve && mkdir -p /root/dsh-workspace /root/logs
+
+WORKDIR /root/dsh-workspace
+EXPOSE 3080
+ENTRYPOINT ["/usr/local/bin/dsh-serve"]

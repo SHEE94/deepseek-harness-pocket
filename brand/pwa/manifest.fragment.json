@@ -1,0 +1,17 @@
+{
+  "_comment": "PWA manifest fragment for a DSH Pocket web shell. Merge into the served web manifest; upstream dsh-web-frontend owns its own manifest today, so this file is the drop-in for a custom shell.",
+  "name": "DSH Pocket — DeepSeek Harness for Android",
+  "short_name": "口袋 DSH",
+  "description": "未 root Android 上的完整 Agent 运行时：bash / PTY / 文件工具 / 子代理 / 会话搜索，全部在本机。",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B1220",
+  "theme_color": "#0B1220",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

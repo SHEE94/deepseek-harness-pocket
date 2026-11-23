@@ -1,0 +1,51 @@
+# Normalize line endings on check-in; keep the working tree LF everywhere.
+# Shell scripts MUST stay LF: CRLF breaks them on Linux/macOS (Termux,
+# proot guest, CI runners).
+* text=auto eol=lf
+
+# Shell scripts and other POSIX text: LF always.
+*.sh text eol=lf
+*.bash text eol=lf
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+
+# Windows-native scripts: CRLF is conventional and safe here.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Source that is fine either way, but keep LF for consistent diffs.
+*.kt text eol=lf
+*.kts text eol=lf
+*.java text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.xml text eol=lf
+*.svg text eol=lf
+*.properties text eol=lf
+*.gradle text eol=lf
+
+# Binaries: never touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.so binary
+*.so.* binary
+*.jar binary
+*.apk binary
+*.class binary
+*.deb binary
+*.gz binary
+*.xz binary
+*.tgz binary
+*.tar binary
+*.zip binary

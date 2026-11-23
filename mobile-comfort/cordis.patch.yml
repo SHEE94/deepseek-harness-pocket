@@ -1,0 +1,3 @@
+- insert:
+    - id: mobile-comfort
+      name: '@local/dsh-mobile-comfort'

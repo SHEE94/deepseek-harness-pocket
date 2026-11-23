@@ -1,0 +1,45 @@
+# build outputs
+dist/
+out/
+.gradle/
+build/
+*.apk
+
+# fetched artifacts (b1/b3 outputs, reproducible)
+*.tar
+*.tar.gz
+*.oci.tar
+
+# scratch working area: emulator/device captures, ad-hoc probe scripts,
+# real-device screenshots, logcat dumps and profile backups.
+# Never publish this directory - it contains personal device data.
+emu-assets/
+
+# local package-manager cache
+.pnpm-store/
+node_modules/
+
+# Android local config (machine-specific SDK path)
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Kotlin/Gradle local state
+android-shell/.kotlin/
+android-shell/local.properties
+.kotlin/
+
+# compiled scratch helpers (scripts/dev/*.java is source, *.class is not)
+*.class
+
+# brand asset scratch renders
+brand/_scratch/
+brand/__pycache__/
+
+# logs and local editor state
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

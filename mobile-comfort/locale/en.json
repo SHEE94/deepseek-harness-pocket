@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Mobile comfort",
+    "description": "Touch ergonomics for the DSH Web GUI on phones: a compact chip row under the composer (sidebar toggle, text size, comfort styles) plus tap-highlight, focus-zoom and scrollbar fixes. Hidden on wide desktop pointers.",
+    "detail": "docs/DETAIL.md"
+  }
+}

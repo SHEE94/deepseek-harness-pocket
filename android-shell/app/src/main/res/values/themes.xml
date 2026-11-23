@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark, no action bar: every screen of the shell is a full-bleed WebView.
+         AppCompatActivity requires a Theme.AppCompat descendant (crash otherwise). -->
+    <style name="Theme.DSH" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:statusBarColor">#101418</item>
+        <item name="android:navigationBarColor">#101418</item>
+        <item name="android:windowBackground">#101418</item>
+    </style>
+</resources>

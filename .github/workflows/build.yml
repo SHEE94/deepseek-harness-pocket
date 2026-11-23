@@ -1,0 +1,182 @@
+name: build
+
+# 两条发布线 + 每晚金丝雀（方案 §12 R7/R9）：
+#   push/PR      → appliance 锁版本 + 壳 APK 编译 + 工具链单测
+#   schedule     → DSH_VERSION=latest 的金丝雀 appliance（上游破坏性变更先在这里爆）
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: "0 18 * * *" # 18:00 UTC = 02:00 北京时间
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: "DSH npm version (empty = latest)"
+        required: false
+        default: ""
+
+env:
+  APPLIANCE_DSH_VERSION: "0.2.2-rc.2" # 发布线锁版本；金丝雀覆盖为 latest
+
+jobs:
+  # ────────────────────────── appliance 镜像（arm64 原生 runner） ──────────────────────────
+  appliance:
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        include:
+          - channel: release
+            dsh: ""
+          - channel: canary
+            dsh: "latest"
+    # 金丝雀只在 push/schedule 跑，PR 不必等两份镜像
+    if: matrix.channel == 'release' || github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve DSH version
+        id: ver
+        run: |
+          if [ "${{ matrix.channel }}" = "canary" ]; then
+            echo "dsh=latest" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.dsh_version }}" ]; then
+            echo "dsh=${{ inputs.dsh_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "dsh=${APPLIANCE_DSH_VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "nightly=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Build appliance (includes in-image enablement assertions)
+        working-directory: .
+        env:
+          DSH_VERSION: ${{ steps.ver.outputs.dsh }}
+          APPLIANCE_VERSION: ${{ matrix.channel }}-${{ steps.ver.outputs.nightly || github.sha }}
+        run: bash scripts/b1-build-appliance.sh
+
+      - name: Runtime smoke — serve, reach the token URL, tear down
+        run: |
+          set -euo pipefail
+          IMG=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^dsh-appliance:' | head -1)
+          echo "image=$IMG"
+          docker run -d --name dsh-smoke -p 3080:3080 "$IMG"
+          trap 'docker logs dsh-smoke || true; docker rm -f dsh-smoke || true' EXIT
+          for i in $(seq 1 30); do
+            if docker exec dsh-smoke sh -c 'grep -q "dsh web:" /root/logs/dsh-web.log 2>/dev/null'; then break; fi
+            sleep 2
+          done
+          URL=$(docker exec dsh-smoke grep -o 'http://127.0.0.1:[0-9]*/[^ ]*' /root/logs/dsh-web.log | head -1)
+          test -n "$URL"
+          # 首次 token URL 会签发 cookie 后 3xx 重定向——2xx/3xx 都算活着
+          code=$(curl -s -o /tmp/diag.html -w '%{http_code}' "$URL")
+          echo "http=$code"
+          case "$code" in 2??|3??) ;; *) echo "unexpected http $code"; exit 1 ;; esac
+          # 移动端插件确实随镜像激活（引擎能看见 mobile-comfort）
+          docker exec dsh-smoke dsh --profile web --dump-config | grep -q 'dsh-mobile-comfort'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: appliance-${{ matrix.channel }}
+          path: |
+            dist/*.oci.tar
+            dist/*-rootfs.tar.gz
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  # ────────────────────────── 壳 APK 编译（证明 Kotlin 可编译） ──────────────────────────
+  shell-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+
+      - name: Generate gradle wrapper (repo intentionally ships none)
+        run: |
+          gradle -p android-shell wrapper --gradle-version 8.13
+          test -f android-shell/gradlew
+
+      - name: Assemble debug APK
+        working-directory: android-shell
+        run: ./gradlew :app:assembleDebug --console=plain --no-daemon
+
+      - name: APK sanity (abi + targetSdk hard constraints)
+        run: |
+          APK=$(find android-shell/app/build/outputs/apk/debug -name '*.apk' | head -1)
+          echo "apk=$APK"
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | head -1)
+          BADGING=$("$AAPT" dump badging "$APK")
+          echo "$BADGING" | grep -q "sdkVersion:'26'"
+          echo "$BADGING" | grep -q "targetSdkVersion:'28'"   # 硬约束②：不得升
+          echo "$BADGING" | grep -q "package: name='com.dsh.android'" # 硬约束①：15 字符
+          echo "$BADGING" | grep -q "sdkVersion:'26'"
+          # (no native-code assertion: shell ships zero .so by design; arm64 is a
+          #  runtime check in DshEngineService, asset pipeline carries the binaries)
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-shell-debug
+          path: android-shell/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  # ────────────────────────── 工具链单测（tar 解析器 + seed） ──────────────────────────
+  tooling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: Shell syntax gate (all device scripts)
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in scripts/*.sh scripts/dev/*.sh; do
+            bash -n "$f" && echo "bash -n OK  $f"
+          done
+      - name: install.sh refuses non-Termux env (exit 10 contract)
+        run: |
+          set -uo pipefail
+          env -u PREFIX bash scripts/install.sh; rc=$?
+          test "$rc" = "10"   # 预检失败契约码
+      - name: Tar parser branch tests (mirrors TarExtractor.kt)
+        run: node scripts/dev/tar-gnu-branches-test.mjs /tmp/tar-gnu
+      - name: mobile-comfort headless behavior suite
+        run: node scripts/dev/mobile-comfort-behavior.test.mjs
+      - name: shell wait-page state machine tests
+        run: node scripts/dev/wait-page-behavior.test.mjs
+      - name: shell pure-logic parity (ladder / sums / stamp)
+        run: node scripts/dev/shell-logic-parity.test.mjs
+      - name: diagnostics redaction/tail parity (S7 P0 gate)
+        run: node scripts/dev/diag-logic-parity.test.mjs
+      - name: Tar parity vs system tar
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/parity/src /tmp/parity/rep /tmp/parity/sys
+          echo hi > /tmp/parity/src/a.txt
+          deep=/tmp/parity/src; for i in $(seq 1 6); do deep=$deep/dir-xxxxxxxxxxxxxxxxxx-$i; done
+          mkdir -p "$deep"; echo deep > "$deep/very-long-named-payload-file-that-pushes-past-the-ustar-name-limit-for-sure-0123456789abcdef.txt"
+          tar -czf /tmp/parity/f.tar.gz -C /tmp/parity/src .
+          node scripts/dev/tar-parser-parity.mjs /tmp/parity/f.tar.gz /tmp/parity/rep
+          tar -xzf /tmp/parity/f.tar.gz -C /tmp/parity/sys
+          diff -r /tmp/parity/rep /tmp/parity/sys
+      - name: Seed script behavior
+        run: |
+          set -euo pipefail
+          printf '{"name":"p","private":true,"dependencies":{"@local/dsh-mobile-comfort":"file:/opt/dsh-plugins/dsh-mobile-comfort"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"]}}}' > /tmp/p1.json
+          node scripts/seed-mobile-comfort.mjs /tmp/p1.json
+          node scripts/seed-mobile-comfort.mjs /tmp/p1.json          # idempotent
+          node -e '
+            const j = require("/tmp/p1.json");
+            const b = j.dsh.profile.bundles;
+            if (b.filter(x => x === "@local/dsh-mobile-comfort").length !== 1) { console.error("bundles wrong:", b); process.exit(1); }
+            console.log("seed idempotent OK", b);
+          '
+          printf '{"name":"p","private":true,"dependencies":{},"dsh":{"profile":{"bundles":[]}}}' > /tmp/p2.json
+          ! node scripts/seed-mobile-comfort.mjs /tmp/p2.json        # 缺依赖必须拒绝

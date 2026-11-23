@@ -1,0 +1,173 @@
+name: release
+
+# 闭环：tag v* → 构建全部产物 → GitHub Release。
+# 发布后手机侧一行装机即是：
+#   export DSH_ANDROID_BASE=https://github.com/<owner>/<repo>/releases/download/<tag>
+#   curl -fsSL $DSH_ANDROID_BASE/install.sh | bash
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)build"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  DSH_VERSION: "0.2.2-rc.2" # 发布线锁版本；升级走 PR 改这里（金丝雀由 build.yml 兜底预警）
+
+jobs:
+  # ───────────────────────────── appliance 镜像 ─────────────────────────────
+  appliance:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (context = repo root, includes enablement assertions)
+        env:
+          APPLIANCE_VERSION: ${{ github.ref_name || inputs.tag }}
+        run: bash scripts/b1-build-appliance.sh
+      - name: Runtime smoke — container serves the GUI before we ship it
+        run: |
+          set -euo pipefail
+          IMG=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^dsh-appliance:' | head -1)
+          docker run -d --name dsh-smoke -p 3080:3080 "$IMG"
+          trap 'docker logs dsh-smoke || true; docker rm -f dsh-smoke || true' EXIT
+          for i in $(seq 1 30); do
+            docker exec dsh-smoke sh -c 'grep -q "dsh web:" /root/logs/dsh-web.log 2>/dev/null' && break
+            sleep 2
+          done
+          URL=$(docker exec dsh-smoke grep -o 'http://127.0.0.1:[0-9]*/[^ ]*' /root/logs/dsh-web.log | head -1)
+          test -n "$URL"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL")
+          case "$code" in 2??|3??) echo "smoke http=$code OK" ;; *) echo "smoke failed http=$code"; exit 1 ;; esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-appliance
+          path: dist/*
+          if-no-files-found: error
+
+  # ───────────────────────────── 壳 APK ─────────────────────────────
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+      - name: Gradle wrapper
+        run: gradle -p android-shell wrapper --gradle-version 8.13
+      # 骨架阶段：debug 签名可装可用。生产分发 = 自行配置 keystore 重签（RELEASE_NOTES 有步骤）。
+      - name: Assemble (debug-signed)
+        working-directory: android-shell
+        # -PupdateBase 把「官方更新服务器」在发布瞬间烤进 APK：指向本仓库的
+        # GitHub Releases 下载目录（publish job 上传的 dsh-update-*.tar.gz +
+        # SHA256SUMS-update.txt 即官方清单）。用户端零配置，⟳ 即官方检查。
+        run: ./gradlew :app:assembleDebug --console=plain --no-daemon "-PupdateBase=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+      - name: Hard-constraint gate (targetSdk 28 / 15-char id / minSdk 26)
+        run: |
+          set -euo pipefail
+          APK=$(find android-shell/app/build/outputs/apk/debug -name '*.apk' | head -1)
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | head -1)
+          B=$("$AAPT" dump badging "$APK")
+          echo "$B" | grep -q "targetSdkVersion:'28'"
+          echo "$B" | grep -q "package: name='com.dsh.android'"
+          echo "$B" | grep -q "sdkVersion:'26'"
+          # ABI 约束不在 APK 层断言（壳无 .so，proot 走资产管线投递）；
+          # 运行时由 DshEngineService 的 arm64 探测兜底（SUPPORTED_ABIS）。
+          mkdir -p out && cp "$APK" "out/dsh-android-${GITHUB_REF_NAME:-dev}.apk"
+      - uses: actions/upload-artifact@v4
+        with: { name: release-shell, path: out/*, if-no-files-found: error }
+
+  # ───────────────────────────── installer 三件套 + 校验 ─────────────────────────────
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack installer assets with SHA256SUMS (install.sh enforces it)
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp scripts/install.sh scripts/a1-termux-bootstrap.sh \
+             scripts/a2-guest-dsh-serve.sh scripts/a2-termux-boot-dsh.sh out/
+          # 命名契约：installer 用专属 sums 名，避免与 appliance 的 SHA256SUMS.txt
+          # （rootfs 校验，壳 AssetInstaller 消费）在 Release 资产合并时互相覆盖。
+          ( cd out && sha256sum install.sh a1-termux-bootstrap.sh \
+              a2-guest-dsh-serve.sh a2-termux-boot-dsh.sh > SHA256SUMS-installer.txt )
+          cat out/SHA256SUMS-installer.txt
+      - name: Shell asset-name gate (finder contract: *-rootfs.tar* + SHA256SUMS.txt)
+        run: |
+          set -euo pipefail
+          # 壳 AssetInstaller.findPlan 按「*-rootfs.tar* 取最新 + SHA256SUMS.txt 查表」
+          # 找资产。appliance job 的产物名必须落在该模式内，且 sums 只含这两文件行，
+          # 否则引导页永远「缺资产」。改名前先想这条。
+          echo "expected pattern: dsh-appliance-<VER>-rootfs.tar.gz + SHA256SUMS.txt"
+          grep -q 'rootfs.tar' .github/workflows/release.yml
+          grep -rq 'dsh-appliance-.*rootfs.tar' scripts/b1-build-appliance.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: release-installer, path: out/*, if-no-files-found: error }
+
+  # ───────────────────────────── proot 运行件（官方 deb 可验证重打包） ─────────────────────────────
+  proot:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch + SHA-verify + native smoke (arm64)
+        run: bash scripts/b3-fetch-proot.sh out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-proot
+          path: |
+            out/proot-bundle.tar.gz
+            out/SHA256SUMS-proot.txt
+          if-no-files-found: error
+
+  # ───────────────────────────── 汇总发布 ─────────────────────────────
+  publish:
+    needs: [appliance, shell, installer, proot]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { pattern: "release-*", path: bundle, merge-multiple: true }
+      - name: Release notes
+        run: |
+          TAG=${GITHUB_REF_NAME:-dev}
+          cat > notes.md <<EOF
+          ## 装手机（二选一）
+
+          **A. Termux + 一键安装器（推荐起步）**
+          \`\`\`bash
+          export DSH_ANDROID_BASE=https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG
+          curl -fsSL "\$DSH_ANDROID_BASE/install.sh" | bash
+          \`\`\`
+          预检失败会说人话并给出路；SHA-256 强制校验。
+
+          **B. 壳 APK（独立系统形态，侧载）**
+          下载 \`dsh-android-$TAG.apk\` 安装；首启引导页用文件选择器导入
+          \`dsh-appliance-$TAG-rootfs.tar.gz\`、\`SHA256SUMS.txt\`（appliance 校验）与
+          \`proot-bundle.tar.gz\`。
+
+          ## proot 运行件
+          随发布提供 \`proot-bundle.tar.gz\`（Termux 官方仓库可验证重打包，arm64 原生
+          冒烟通过：--version + ptrace 起 /bin/cat）。壳 APK 的引导页直接选它即可；
+          手工场景用 \`scripts/b3-fetch-proot.sh\` 重新生成（供应链：Packages 索引 SHA256 强校验）。
+
+          ## 生产签名
+          本 APK 为 debug 签名。正式分发请在带 keystore 的机器执行
+          \`gradle -p android-shell assembleRelease\` 自行签名。
+
+          ## 校验（三种 sums，各司其职）
+          \`SHA256SUMS-installer.txt\`=装机三件套+安装器自身（install.sh 自动核对）；
+          \`SHA256SUMS.txt\`=appliance OCI/rootfs（壳 AssetInstaller 自动核对）；
+          \`SHA256SUMS-proot.txt\`=proot bundle。
+          EOF
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: bundle/*
+          body_path: notes.md
+          fail_on_unmatched_files: true
