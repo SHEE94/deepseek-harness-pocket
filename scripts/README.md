@@ -58,7 +58,7 @@ python scripts/b1b-build-rootfs-win.py emu-assets dist
 `git tag vX.Y.Z && git push --tags` 即产出完整 Release：appliance OCI/rootfs（+其 `SHA256SUMS.txt`，壳端校验）+ 壳 APK（debug 签名，aapt2 三条硬约束门禁）+ installer 四件套（+专属 `SHA256SUMS-installer.txt`，install.sh 校验，命名与 appliance sums 隔离防资产覆盖）+ proot bundle。发布说明内置一行装机命令：
 
 ```bash
-export DSH_ANDROID_BASE=https://github.com/<owner>/<repo>/releases/download/<tag>
+export DSH_ANDROID_BASE=https://github.com/SHEE94/deepseek-harness-pocket/releases/download/<tag>
 curl -fsSL "$DSH_ANDROID_BASE/install.sh" | bash
 ```
 

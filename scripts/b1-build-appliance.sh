@@ -9,7 +9,7 @@
 # 用法：
 #   DSH_VERSION=0.2.2-rc.2 USE_CN_MIRROR=1 bash scripts/b1-build-appliance.sh
 # 国内构建机建议 USE_CN_MIRROR=1；推送到 ghcr 供手机拉取：
-#   docker buildx imagetools / 或 skopeo copy oci:dist/….oci.tar ghcr.io/<you>/dsh-appliance:<VER>
+#   docker buildx imagetools / 或 skopeo copy oci:dist/….oci.tar ghcr.io/SHEE94/dsh-appliance:<VER>
 # =============================================================================
 set -euo pipefail
 SDIR="$(cd "$(dirname "$0")" && pwd)"
@@ -66,7 +66,7 @@ cat <<EOF
   A) 起一个 HTTPS 静态源（或 python3 -m http.server + 内网穿透/scp），然后：
        proot-distro install https://<host>/dsh-appliance-$VER.oci.tar --name dsh
        proot-distro login dsh -- /usr/local/bin/dsh-serve
-  B) 推送到 ghcr.io（skopeo copy oci:dist/dsh-appliance-$VER.oci.tar docker://ghcr.io/<you>/dsh-appliance:$VER）
-     手机端 export PD_DOCKER_AUTH=<user>:<PAT>; proot-distro install ghcr.io/<you>/dsh-appliance:$VER
+  B) 推送到 ghcr.io（skopeo copy oci:dist/dsh-appliance-$VER.oci.tar docker://ghcr.io/SHEE94/dsh-appliance:$VER）
+     手机端 export PD_DOCKER_AUTH=<user>:<PAT>; proot-distro install ghcr.io/SHEE94/dsh-appliance:$VER
   启动后 Chrome 打开日志里的 dsh web token URL（/root/logs/dsh-web.log 亦可回查）。
 EOF

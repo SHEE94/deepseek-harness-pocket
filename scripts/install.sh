@@ -68,7 +68,7 @@ step "2/4 获取核心脚本（$VER）"
 if [ -z "$BASE" ]; then
   # 无发布地址时：假定与 install.sh 同目录（GitHub raw 场景常见）
   fail "需设置 DSH_ANDROID_BASE（核心脚本发布基址），例如：
-  export DSH_ANDROID_BASE=https://github.com/<you>/dsh-android/releases/download/installer-v1
+  export DSH_ANDROID_BASE=https://github.com/SHEE94/deepseek-harness-pocket/releases/download/installer-v1
   curl -fsSL \"\$DSH_ANDROID_BASE/install.sh\" | bash
   离线方式：直接把 a1-termux-bootstrap.sh 传到手机执行，install.sh 的预检价值同样适用。" 11
 fi

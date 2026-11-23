@@ -10,7 +10,7 @@
 
 ```bash
 # Termux（F-Droid / GitHub Releases）内：
-export DSH_ANDROID_BASE=https://github.com/<owner>/<repo>/releases/download/<tag>
+export DSH_ANDROID_BASE=https://github.com/SHEE94/deepseek-harness-pocket/releases/download/<tag>
 curl -fsSL "$DSH_ANDROID_BASE/install.sh" | bash
 proot-distro login ubuntu -- bash /usr/local/bin/dsh-serve
 # Chrome 打开打印的 dsh web URL → 添加到主屏幕 = 全屏 PWA

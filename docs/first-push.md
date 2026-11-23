@@ -10,7 +10,7 @@
 - 把本工作区作为仓库根 push（README/CI 已就位）：
   ```bash
   git init -b main && git add -A && git commit -m "DSH on Android: plan+scripts+shell+ux+ci"
-  git remote add origin https://github.com/<owner>/dsh-android.git && git push -u origin main
+  git remote add origin https://github.com/SHEE94/deepseek-harness-pocket.git && git push -u origin main
   ```
   注：`.gitignore` 已就位（见「6」），`dist/`、`.gradle/`、`local.properties`、`emu-assets/` 都不会进索引。
 
@@ -59,7 +59,7 @@ git tag v0.1.0 && git push origin v0.1.0
 `release.yml` 产出：appliance OCI/rootfs + `dsh-android-v0.1.0.apk`（debug 签名）+ installer 四件套 + `proot-bundle.tar.gz`（arm 冒烟过）+ SHA256SUMS 两式。
 手机侧即：
 ```bash
-export DSH_ANDROID_BASE=https://github.com/<owner>/dsh-android/releases/download/v0.1.0
+export DSH_ANDROID_BASE=https://github.com/SHEE94/deepseek-harness-pocket/releases/download/v0.1.0
 curl -fsSL "$DSH_ANDROID_BASE/install.sh" | bash
 ```
 必须用 `export` 形态：行首 `VAR=x curl … | bash` 只把变量给 `curl`，**不会**穿过管道进

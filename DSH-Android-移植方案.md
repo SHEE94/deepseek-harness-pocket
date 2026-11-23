@@ -437,7 +437,7 @@ rootfs/引擎资产带 SHA-256 + 版本号双戳；APK 自更新走 HTTPS + 校�
 ## 13. 立即可做的第一步
 
 - **一行式（推荐）**：Release 产物就位后，Termux 里
-  `export DSH_ANDROID_BASE=https://github.com/<owner>/<repo>/releases/download/<tag>` 然后
+  `export DSH_ANDROID_BASE=https://github.com/SHEE94/deepseek-harness-pocket/releases/download/<tag>` 然后
   `curl -fsSL "$DSH_ANDROID_BASE/install.sh" | bash`
   （预检、SHA-256、断点重跑、契约退出码，见 `scripts/install.sh`。必须 export 形态——行首前缀不穿管道）。
 0. **30 秒冒烟（可选）**：任何已装 Node ≥ 24.9 的 linux-arm64 环境（包括你手机上刚建好的
