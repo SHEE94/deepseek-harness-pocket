@@ -148,7 +148,11 @@ jobs:
       - name: install.sh refuses non-Termux env (exit 10 contract)
         run: |
           set -uo pipefail
-          env -u PREFIX bash scripts/install.sh; rc=$?
+          # GitHub 的默认 shell 带 -e，install.sh 退出 10 会直接中断整个 step，
+          # `rc=$?` 根本没机会执行。用 `|| rc=$?` 把它变成条件上下文。
+          rc=0
+          env -u PREFIX bash scripts/install.sh || rc=$?
+          echo "install.sh exit=$rc"
           test "$rc" = "10"   # 预检失败契约码
       - name: Privacy gate (no personal data in tracked files)
         run: |

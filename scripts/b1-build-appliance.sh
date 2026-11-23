@@ -19,6 +19,16 @@ VER="${APPLIANCE_VERSION:-$(date +%Y%m%d)-dsh${DSH_VERSION:-latest}}"
 mkdir -p "$OUT"
 IMG="dsh-appliance:${VER}"
 
+# buildx 驱动：默认的 "docker" driver 不支持 `--output type=oci` / `type=tar`
+# （会报 "output file is not supported with docker driver"），先确保选中一个
+# docker-container builder。
+if docker buildx inspect dsh-builder >/dev/null 2>&1; then
+  docker buildx use dsh-builder
+else
+  docker buildx create --name dsh-builder --use
+fi
+docker buildx inspect --bootstrap >/dev/null
+
 docker buildx build \
   --platform linux/arm64 \
   -f "$SDIR/Dockerfile.appliance" \
@@ -27,14 +37,6 @@ docker buildx build \
   --build-arg "USE_CN_MIRROR=${USE_CN_MIRROR:-0}" \
   -t "$IMG" \
   --load \
-  "$ROOT" 2>/dev/null \
-|| docker buildx build \
-  --platform linux/arm64 \
-  -f "$SDIR/Dockerfile.appliance" \
-  --build-arg "NODE_VERSION=${NODE_VERSION:-24.9.0}" \
-  --build-arg "DSH_VERSION=${DSH_VERSION:-latest}" \
-  --build-arg "USE_CN_MIRROR=${USE_CN_MIRROR:-0}" \
-  -t "$IMG" \
   "$ROOT"
 
 echo "[b1] export OCI layout → dist/dsh-appliance-$VER.oci.tar"
