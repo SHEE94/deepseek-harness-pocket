@@ -63,7 +63,7 @@ jobs:
           set -euo pipefail
           IMG=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^dsh-appliance:' | head -1)
           echo "image=$IMG"
-          docker run -d --name dsh-smoke -p 3080:3080 "$IMG"
+          docker run -d --name dsh-smoke "$IMG"
           trap 'docker logs dsh-smoke || true; docker rm -f dsh-smoke || true' EXIT
           for i in $(seq 1 30); do
             if docker exec dsh-smoke sh -c 'grep -q "dsh web:" /root/logs/dsh-web.log 2>/dev/null'; then break; fi
@@ -71,8 +71,12 @@ jobs:
           done
           URL=$(docker exec dsh-smoke grep -o 'http://127.0.0.1:[0-9]*/[^ ]*' /root/logs/dsh-web.log | head -1)
           test -n "$URL"
+          echo "url=$URL"
+          # 引擎只监听容器内的 127.0.0.1（对手机来说是正确姿态：本机 WebView 访问），
+          # 所以宿主机 curl 走 -p 发布端口是连不上的（CURLE_RECV_ERROR 56）。
+          # 必须在容器内部探测。
           # 首次 token URL 会签发 cookie 后 3xx 重定向——2xx/3xx 都算活着
-          code=$(curl -s -o /tmp/diag.html -w '%{http_code}' "$URL")
+          code=$(docker exec dsh-smoke curl -s -o /dev/null -w '%{http_code}' "$URL")
           echo "http=$code"
           case "$code" in 2??|3??) ;; *) echo "unexpected http $code"; exit 1 ;; esac
           # 移动端插件确实随镜像激活（引擎能看见 mobile-comfort）

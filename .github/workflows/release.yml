@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           IMG=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^dsh-appliance:' | head -1)
-          docker run -d --name dsh-smoke -p 3080:3080 "$IMG"
+          docker run -d --name dsh-smoke "$IMG"
           trap 'docker logs dsh-smoke || true; docker rm -f dsh-smoke || true' EXIT
           for i in $(seq 1 30); do
             docker exec dsh-smoke sh -c 'grep -q "dsh web:" /root/logs/dsh-web.log 2>/dev/null' && break
@@ -42,7 +42,10 @@ jobs:
           done
           URL=$(docker exec dsh-smoke grep -o 'http://127.0.0.1:[0-9]*/[^ ]*' /root/logs/dsh-web.log | head -1)
           test -n "$URL"
-          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL")
+          echo "url=$URL"
+          # 引擎只监听容器内的 127.0.0.1（对手机是正确姿态：本机 WebView 访问），
+          # 宿主经 -p 发布的端口连不上（CURLE_RECV_ERROR 56），必须在容器内探测。
+          code=$(docker exec dsh-smoke curl -s -o /dev/null -w '%{http_code}' "$URL")
           case "$code" in 2??|3??) echo "smoke http=$code OK" ;; *) echo "smoke failed http=$code"; exit 1 ;; esac
       - uses: actions/upload-artifact@v4
         with:
