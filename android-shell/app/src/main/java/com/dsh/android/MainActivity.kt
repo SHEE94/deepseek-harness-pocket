@@ -58,6 +58,14 @@ class MainActivity : AppCompatActivity() {
                 }
                 override fun onPageFinished(view: WebView?, url: String?) {
                     if (waitActive) pushFacts()
+                    // History hygiene: once the ENGINE page is rendered, drop the
+                    // wait/token entries so BACK never lands on dead pages.
+                    if (pendingHistoryClear && url != null &&
+                        (url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost"))
+                    ) {
+                        pendingHistoryClear = false
+                        web.clearHistory()
+                    }
                 }
             }
             // Loopback JS bridge for the official GUI's mobile-comfort plugin:
@@ -74,6 +82,14 @@ class MainActivity : AppCompatActivity() {
                     if (!(url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost"))) return
                     startService(Intent(this@MainActivity, DshEngineService::class.java)
                         .setAction(DshEngineService.ACTION_CHECK_UPDATE))
+                }
+                @android.webkit.JavascriptInterface
+                fun reportError(msg: String) {
+                    // Diagnostic channel: the GUI hides RPC error details behind a
+                    // fixed label; surface the real message as a Toast. Noise guard:
+                    // transient describe races report undefined/null — log only.
+                    if (msg.isBlank() || msg == "undefined" || msg == "null") return
+                    runOnUiThread { toast(msg.take(180)) }
                 }
             }, "DshAndroid")
         }
@@ -176,16 +192,43 @@ class MainActivity : AppCompatActivity() {
         pm.menu.add(0, 2, 0, "恢复插件")
         pm.menu.add(0, 3, 0, "导出诊断")
         pm.menu.add(0, 4, 0, "关于 / 版本")
+        pm.menu.add(0, 5, 0, "查看配置文件")
         pm.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> serviceAction(DshEngineService.ACTION_RETRY)
                 2 -> serviceAction(DshEngineService.ACTION_RESTORE)
                 3 -> startActivity(Intent(this, DiagShareActivity::class.java))
                 4 -> toast("DSH ${engineVersion()}")
+                5 -> openProfileConfig()
             }
             true
         }
         pm.show()
+    }
+
+    /** Native path to the SAME file the GUI's 「打开配置文件」 targets — the GUI
+     *  side errors during configForms.describe() (upstream wiring bug in this
+     *  deployment shape, error shows before any tap), so the shell owns this
+     *  entry until that's fixed upstream. */
+    private fun openProfileConfig() {
+        val root = File(AssetInstaller.runtimeDir(this), "rootfs/root/.dsh/profiles/web")
+        val f = File(root, "cordis.patch.yml").takeIf { it.isFile }
+            ?: File(root, "cordis.yml").takeIf { it.isFile }
+        if (f == null) {
+            toast("配置文件不存在（${root.path}）")
+            return
+        }
+        val content = runCatching {
+            f.inputStream().use { ins ->
+                val b = ByteArray(256 * 1024)
+                val n = ins.read(b)
+                String(if (n == b.size) b else b.copyOf(n), Charsets.UTF_8)
+            }
+        }.getOrElse { "（读取失败：${it.message}）" }
+        val tail = if (f.length() > 256 * 1024) "\n\n…（文件过大，仅显示前 256KB）" else ""
+        startActivity(Intent(this, FileViewerActivity::class.java)
+            .putExtra("path", "/root/.dsh/profiles/web/${f.name}")
+            .putExtra("content", content + tail))
     }
 
     private fun serviceAction(a: String) {
@@ -241,6 +284,10 @@ class MainActivity : AppCompatActivity() {
                 .getString("last_gui_url", null)
             val target = if (lastRendered != null && lastRendered.startsWith("http://127.0.0.1")
                 && !CookieManager.getInstance().getCookie(lastRendered).isNullOrBlank()) lastRendered else url
+            // Plugin client modules are served with caching — clear so patched
+            // bundles (diagnostics like reportError) actually reach the page.
+            web.clearCache(true)
+            pendingHistoryClear = true
             web.loadUrl(target)
         } else if (SetupActivity.needsSetup(this)) {
             // First run without assets: hand over to the guided onboarding.
@@ -268,6 +315,7 @@ class MainActivity : AppCompatActivity() {
                 }.getOrDefault(true)
                 if (u != null && fresh) {
                     waitActive = false
+                    pendingHistoryClear = true
                     runOnUiThread { web.loadUrl(u) }
                     return@Thread
                 }
@@ -307,8 +355,16 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread { runCatching { web.evaluateJavascript("window.setFacts&&window.setFacts($f)", null) } }
     }
 
+    // BACK predictability (user report: back randomly landed on a blank page,
+    // the engine-booting wait page, or the desktop — three dead ends):
+    //  1) wait page + token redirect pollute the WebView back/forward list —
+    //     we clear it right after the engine page finishes loading;
+    //  2) with an empty list we moveTaskToBack instead of finish — leaving the
+    //     app warm means returning NEVER re-creates the Activity/WebView.
+    private var pendingHistoryClear = false
+
     override fun onBackPressed() {
-        if (!web.canGoBack()) super.onBackPressed() else web.goBack()
+        if (waitActive || !web.canGoBack()) moveTaskToBack(true) else web.goBack()
     }
 
     override fun onResume() {
@@ -318,9 +374,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        // Only persist ENGINE-page state: a wait-page/token-redirect list would
+        // resurrect dead pages through restoreState on the next rebuild.
+        val onEngine = !waitActive && (web.url ?: "").let {
+            it.startsWith("http://127.0.0.1") || it.startsWith("http://localhost")
+        }
         runCatching {
-            web.saveState(outState)
-            android.util.Log.i("dsh-loop", "saveState done url=${web.url ?: "null"}")
+            if (onEngine) {
+                web.saveState(outState)
+                android.util.Log.i("dsh-loop", "saveState done url=${web.url}")
+            } else {
+                android.util.Log.i("dsh-loop", "saveState skipped (wait/blank page)")
+            }
         }.onFailure { android.util.Log.i("dsh-loop", "saveState fail ${it.message}") }
     }
     override fun onPause() {

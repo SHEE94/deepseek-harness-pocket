@@ -24,6 +24,13 @@ android {
         }
     }
 
+    // Engine assets ship pre-compressed (.tar.gz inside the APK): storing them
+    // raw avoids a 1.2 GB in-memory deflate in compressDebugAssets (OOM'd the
+    // build, device-user requirement: bundle assets, never skimp).
+    androidResources {
+        noCompress += "gz"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

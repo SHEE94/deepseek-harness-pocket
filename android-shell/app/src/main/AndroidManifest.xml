@@ -46,6 +46,13 @@
             android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- In-app viewer for "打开配置文件" (DSH_ANDROID_OPEN bridge). -->
+        <activity
+            android:name=".FileViewerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- First-run asset onboarding (SAF, no adb needed). -->
         <activity
             android:name=".SetupActivity"

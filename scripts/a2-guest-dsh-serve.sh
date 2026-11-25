@@ -8,6 +8,9 @@ set -u
 # Guest owns its PATH absolutely: when spawned by the Android host, the
 # inherited PATH is /system/bin-style (no mkdir/date inside the rootfs).
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/node/bin
+# Android appliance marker: open-in-app emits DSH_ANDROID_OPEN:<path> on stdout
+# instead of spawning desktop openers (no xdg-open here); the shell pump reads it.
+export DSH_ANDROID=1
 PORT="${DSH_PORT:-3080}"
 HOST="${DSH_HOST:-127.0.0.1}"
 WORKDIR="${DSH_WORKDIR:-/root/dsh-workspace}"

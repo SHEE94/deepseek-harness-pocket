@@ -246,48 +246,81 @@ class DshEngineService : Service() {
      *  files/runtime/rootfs/root/{projects,sdcard} (ext4, fast) and the shared
      *  side at Android/data/.../projects (app-owned) + /storage/emulated/0
      *  (FUSE, appops-gated). A 10s mtime-diff sync keeps both visible. */
+    /** Storage bridge v2 (user requirement: project files survive app
+     *  uninstall/reinstall/re-stage). Scope-locked redesign after the P0:
+     *   - ONLY the dedicated exchange roots — /storage/emulated/0/DSH/{projects,
+     *     sdcard} on the user-visible side (survives uninstall), mirrored with
+     *     the guest working copies /root/{projects,sdcard} inside the rootfs;
+     *   - NEVER scans the whole storage root, never touches anything outside
+     *     the two dedicated dirs;
+     *   - atomic writes (.part + rename) BOTH directions — no partial file can
+     *     ever overwrite an original (the P0 failure mode);
+     *   - newer-mtime wins, files are NEVER deleted;
+     *   - the guest working copies are re-stage-protected (stash) so the sync
+     *     and the wipe never race (the other P0 failure mode).
+     *  Recovery: after uninstall the internal copies are gone; the first sync
+     *  tick pulls everything back from the shared side. */
+    private val bridgePairs: List<Pair<File, File>> by lazy {
+        val shared = File("/storage/emulated/0/DSH")
+        val gRoot = File(AssetInstaller.runtimeDir(this), "rootfs/root")
+        listOf(
+            File(shared, "projects") to File(gRoot, "projects"),
+            File(shared, "sdcard") to File(gRoot, "sdcard"),
+        )
+    }
+
     private fun startStorageBridge() {
         if (bridgeThread?.isAlive == true) return
         bridgeThread = Thread {
-            val gRoot = File(AssetInstaller.runtimeDir(this), "rootfs/root")
-            val gProj = File(gRoot, "projects")
-            val gSd = File(gRoot, "sdcard")
-            val hProj = getExternalFilesDir("projects") ?: File(getExternalFilesDir(null), "projects")
-            val hSd = File("/storage/emulated/0")
-            android.util.Log.i("dsh-loop", "bridge start g=${gRoot} h=${hProj}")
+            android.util.Log.i("dsh-loop", "bridge v2 start (dedicated dirs, atomic, no-delete)")
             while (running.get() && !Thread.currentThread().isInterrupted) {
-                runCatching { syncDir(hProj, gProj) }
                 if (android.os.Environment.isExternalStorageManager()) {
-                    runCatching { syncDir(hSd, gSd, skip = listOf("Android")) }
+                    for ((h, g) in bridgePairs) {
+                        runCatching { syncDir(h, g) }
+                    }
                 }
                 Thread.sleep(10_000)
             }
-        }.apply { name = "dsh-storage-bridge"; isDaemon = true; start() }
+        }.apply { name = "dsh-storage-bridge-v2"; isDaemon = true; start() }
     }
 
-    /** Shallow-diff both-ways copy (mtime decides; 1 level recursion is enough
-     *  for exchange usage and keeps FUSE cost low). */
-    private fun syncDir(host: File, guest: File, skip: List<String> = emptyList()) {
+    /** Bidirectional mirror with atomic writes and NO deletion. Both sides are
+     *  host-visible plain dirs; depth-capped full recursion; newer mtime wins;
+     *  dotfiles skipped. */
+    private fun syncDir(host: File, guest: File) {
         if (!host.isDirectory) host.mkdirs()
         if (!guest.isDirectory) guest.mkdirs()
-        fun copyAll(src: File, dst: File, depth: Int) {
-            src.listFiles()?.forEach { f ->
-                if (f.name.startsWith(".")) return@forEach
-                if (f.isDirectory) {
-                    if (depth < 1 && f.name !in skip) {
-                        val d = File(dst, f.name); d.mkdirs(); copyAll(f, d, depth + 1)
+        copyAllSafe(host, guest, 0)
+        copyAllSafe(guest, host, 0)
+    }
+
+    private fun copyAllSafe(src: File, dst: File, depth: Int) {
+        if (depth > 12) return
+        src.listFiles()?.forEach { f ->
+            if (f.name.startsWith(".")) return@forEach
+            if (f.isDirectory) {
+                val d = File(dst, f.name)
+                if (!d.isDirectory) d.mkdirs()
+                copyAllSafe(f, d, depth + 1)
+            } else {
+                val t = File(dst, f.name)
+                if (!t.exists() || t.lastModified() < f.lastModified() || t.length() != f.length()) {
+                    // atomic: never leave a partial file as the final name
+                    val part = File(dst, f.name + ".dshpart")
+                    runCatching {
+                        f.inputStream().use { ins -> part.outputStream().use { out -> ins.copyTo(out, 1 shl 16) } }
+                        part.setLastModified(f.lastModified())
+                        if (!part.renameTo(t)) {
+                            t.delete()
+                            part.renameTo(t)
+                        }
+                    }.onFailure {
+                        runCatching { part.delete() }
                     }
-                } else {
-                    val t = File(dst, f.name)
-                    if (!t.exists() || t.lastModified() < f.lastModified())
-                        f.copyTo(t, overwrite = true)
                 }
             }
         }
-        copyAll(host, guest, 0)
-        copyAll(guest, host, 0)
     }
-
     private var bridgeThread: Thread? = null
 
     private fun awaitFuseView(): Boolean {
@@ -446,6 +479,21 @@ class DshEngineService : Service() {
                                     else
                                         "DSH 引擎运行中 · 共享存储未联通 — 点「存储映射」授权",
                                 )
+                            }
+                        }
+                        // open-in-app bridge: the patched guest service emits
+                        // DSH_ANDROID_OPEN:<guest abs path> instead of spawning
+                        // desktop openers (no xdg-open on Android).
+                        if (line.startsWith("DSH_ANDROID_OPEN:")) {
+                            val guestPath = line.removePrefix("DSH_ANDROID_OPEN:").trim()
+                            if (guestPath.startsWith("/")) {
+                                val f = File(AssetInstaller.runtimeDir(this), "rootfs" + guestPath)
+                                val root = File(AssetInstaller.runtimeDir(this), "rootfs")
+                                val inside = runCatching {
+                                    f.canonicalPath.startsWith(root.canonicalPath)
+                                }.getOrDefault(false)
+                                if (inside && f.isFile) showFileInViewer(f, guestPath)
+                                else android.util.Log.i("dsh-loop", "open request rejected/missing: $guestPath")
                             }
                         }
                     }
@@ -640,6 +688,25 @@ class DshEngineService : Service() {
         // incoming/ remain an ops fallback handled by the storage watcher.
         runCatching { proc?.destroy() } // next supervision cycle spawns the new engine
         return "DSH 已更新 $local → $effective，引擎正在重启"
+    }
+
+    /** In-app viewer for "打开配置文件" (no OS file viewer on Android): read the
+     *  guest file (capped) and show it in a transparent Activity dialog — the
+     *  engine Service cannot show dialogs itself. */
+    private fun showFileInViewer(f: File, guestPath: String) {
+        val content = runCatching {
+            f.inputStream().use { ins ->
+                val buf = ByteArray(256 * 1024)
+                val n = ins.read(buf)
+                String(if (n == buf.size) buf else buf.copyOf(n), Charsets.UTF_8)
+            }
+        }.getOrElse { "（读取失败：${it.message}）" }
+        val tail = if (f.length() > 256 * 1024) "\n\n…（文件过大，仅显示前 256KB）" else ""
+        val i = Intent(this, FileViewerActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra("path", guestPath)
+            .putExtra("content", content + tail)
+        startActivity(i)
     }
 
     private fun rotateHostLogIfNeeded() {

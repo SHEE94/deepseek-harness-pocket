@@ -97,7 +97,7 @@ preload_src = os.path.join(repo, 'dist', 'guest-preload', 'node_modules')
 # are native). Land it the way b2/device tests proved: standalone tarball tree
 # next to preload (pnpm/ subdir with root bin "pnpm"). Missing → warn loudly:
 # `dsh plugin add` needs pnpm on device (ENOENT incident, field-notes #13).
-pnpm_src = os.path.join(os.path.dirname(preload_src), 'pnpm')
+pnpm_src = os.path.join(preload_src, 'pnpm')  # merged into the preload tree itself (rc5 refresh)
 if not os.path.isdir(pnpm_src):
     print('[b1b] WARN: preload 缺 pnpm/（plugin add 将不可用）— 跑 b2 的 pnpm 落地步骤')
 preload_path = os.path.join(assets, 'preload.tar')

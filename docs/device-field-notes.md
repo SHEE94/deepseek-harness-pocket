@@ -101,6 +101,85 @@
 
 ## 最小化回来界面重载（2026-11-23 下午定案：Activity 重建 + 快路径恢复）
 
+## 生产资产捆绑（2026-11-23 定案：APK 自带引擎，新用户零操作）
+
+- **用户定调**：这是生产工具，资产必须一起打包，不为省体积而省。落地为 APK 内置三件套 + 首启自动种子。
+- **新架构**：b4-pack-assets.ps1 把 dist 三件（rootfs.tar 原始 1191MB / proot-bundle.tar / SHA256SUMS.txt 重算）放进 `app/src/main/assets/`；AssetInstaller.seedFromAssetsIfNeeded 在 findPlan 入口检查 incoming 无 rootfs 时自动拷贝三件到 incoming（.part→rename，EXDEV 兜底 copy+delete），后续 verify→extract 管线完全复用。**新用户装一个 APK 就能用**；老用户 incoming 已有包则种子跳过（手动/官方包按 mtime 优先）。
+- **构建坑两条**：① compressDebugAssets 对大资产做全量内存 deflate（1.16GB 分配 OOM）——gradle.properties 加 `org.gradle.jvmargs=-Xmx6g` + `kotlin.daemon.jvmargs=-Xmx3g` + `androidResources { noCompress += "gz" }` 后过；② AGP 资产管线会把 `.gz` 资产**展开成原始 tar** 进 APK（mergeDebugAssets 产物实证）——顺势定案资产一律原始 tar 进 APK（名字/sums/种子逻辑全一致，APK 370MB，zip 内 deflate）。
+- **捆绑引擎烤 rc.5**：PC 侧 hoisted 重装 @deepseek-ai/dsh@0.2.2-rc.5（npmmirror），保留 4 个手动件（pnpm、node-addon-require-builtin-linux-arm64-gnu、sherpa-onnx-linux-arm64、@emnapi）合并后整体换树；b2 重打（rootfs sha 099c6df4，update pkg dsh-update-0.2.2-rc.5 同步产出）。
+- **新用户路径 E2E（真机，模拟 incoming 清空）**：装 370MB APK → 授权 → 首启自动种子（三件 1.2GB 落 incoming）→ verify → 解包 → **4 分钟内 LISTEN**；engine = rc.5；stash/replant 保住 profile（会话"问候"、API key、workspace 全在）；更新层 /usr/local/dsh 也回植。**零手动步骤**。
+- 遗留：SetupActivity 保留为无资产兜底（APK 不带资产时引导导入）；release.yml 的 CI 侧资产步骤待接（appliance job 产物 → b4 → assemble）。
+
+## 插件索引「无法读取」（2026-11-23 用户定案：代理差异，非 bug）
+
+## 「打开配置文件」无法打开（2026-11-24 定案：Android 无桌面 opener → 双端桥）
+
+- 现象：agent preset 界面点「打开配置文件」无反应。
+- 根因：`dsh-host-open-in-app` 按桌面平台选 opener（mac `open`/win `start`/linux `xdg-open`），Android 无对应物 → spawn ENOENT。
+- **双端桥修复（全链落地）**：
+  1. guest patch（preload 的 open-in-app lib）：`DSH_ANDROID=1` 时不 spawn，向 stdout 打 `DSH_ANDROID_OPEN:<guest 绝对路径>`（设备已热修 + 树内持久）；
+  2. `a2-guest-dsh-serve.sh` export DSH_ANDROID=1（设备 dsh-serve 已 sed 插入）；
+  3. 壳层 pump 解析该行 → 路径 containment 校验（canonicalPath 必须在 runtime/rootfs 下，防逃逸）→ FileViewerActivity 应用内只读查看器（256KB 截断，monospace，点外部关闭）——不依赖系统有无文件查看器。
+- 安全：只允许打开 guest rootfs 内的文件；路径来自引擎 stdout，与 URL 提取同一泵通道。
+- **真因升级（截图定案）**：红字「无法配置打开」在**未点击时就已显示**——它是设置弹窗打开时 `configForms.describe()` 订阅失败的**陈旧错误**（`SettingsDocumentStore.derive()`：describeFace.error → state.error，UI 显示固定文案），与按钮无关。`describeFace = ctx.configForms.describe()`（接线在 ui-settings-general：`ctx.remote.$host.isLoopback ? new SettingsDocumentStore(ctx, ctx.configForms.describe()) : void 0`）——configForms 走 host 的 cordis 配置编辑器 owner 上下文，在此部署形态下未就绪 → 上游接线缺陷（桌面正常因桌面即 owner）。
+- **用户优先处置**：壳层顶栏 ⋮ 加「查看配置文件」菜单（直接读 `root/.dsh/profiles/web/cordis.patch.yml`（缺省 cordis.yml）→ FileViewerActivity）——绕开损坏的 RPC，原生可用。上游缺陷留档待官方修复。
+- 教训：桌面 shell 依赖（xdg-open 等）在 Android 都要找对应物；pump（引擎 stdout 行解析）是现成的 guest→host 事件通道，比文件轮询干净。
+
+## 平台可选包缺失（2026-11-23 晚：preload 在 PC 装导致 arm64 包被门控跳过）
+
+## P0 数据安全（2026-11-23 晚：存储桥整体禁用——用户报告解包+授权时删本地文件）
+
+## 存储模型 v2（2026-11-24 定案：项目文件独立于 app 生命周期）
+
+## "## 卸载重装 E2E（2026-11-24 晚：两处新 bug 实战暴露并修复）
+
+undefined" Toast 噪音（2026-11-24 晚：诊断通道误触发 → 双端守卫）
+
+- 现象：插件开关、启动界面频繁弹 "undefined" Toast。
+- 根因：自查用的 reportError 诊断通道在 `settings.describe()` 的瞬态失败（connection/reset、页面加载竞态）里被调用，`outcome.failure` 为 undefined → `String(undefined)`="undefined"。
+- 修复（双端守卫）：JS 侧仅当 failure 是非 undefined/null 的非空字符串才调用桥；Kotlin 侧 reportError 对 blank/"undefined"/"null" 直接 return（只记日志）。已烤进 tar 并重刷验证（LISTEN + level RUN + 项目文件无损）。
+- 教训：诊断通道必须自带噪音守卫——瞬态竞态失败（连接重置期）没有诊断价值，弹给用户就是噪音。
+
+- **Bug 1（主线程崩溃）**：重装后 app 的 FUSE 视图看不到 shell 域创建的 incoming 文件（listFiles 空 + EACCES）→ 种子在外部 incoming 建 .part 被拒 → **seedFromAssetsIfNeeded 在主线程崩死 Activity + supervisor**。修复：种子落内部 incoming（app 自有目录永远可写）+ findPlan 双目录查找（内部 incoming 为可靠兜底）+ 整个种子 runCatching（永不崩主线程）。铁律：**凡在 onCreate/supervisor 同步路径上的存储操作都必须 fail-safe**。
+- **Bug 2（plan.proot 语义破坏）**：findPlan 双目录改造时把 `proot-bundle.tar` 选进了 plan.proot（旧语义 = 已解出的 proot **二进制**）→ stage 把原始 tar 当二进制拷进 runtime/proot/proot → shell 把 tar 头当脚本 → 早退 x6 → HALT 挂死。修复：plan.proot 只收名为 "proot" 的文件（legacy 布局）；bundle tar 由 stageIfNeeded 的 bundleTar 定位器负责（该定位器同步改为双目录查找）。
+- **HALT 阶梯运维**：`am start-foreground-service -a com.dsh.android.RETRY_ENGINE`（正确 action 名；RETRY 是错误字符串）。定制系统上 shell 域投递给非 exported service 会被静默拒（无 operator 日志）——必须 app 域（GUI ⋮ → 重启引擎）。
+- **最终状态（全绿）**：重装 → 自动种子（内部 incoming）→ 解包 58180 条 → replant 恢复 root/projects + root/sdcard → proot 真 ELF（177 E L F）→ LISTEN + rescue level=RUN failures=0 → **项目文件穿越卸载/重装/重刷全程无损**（keep.txt + demo/b.txt 原样）。
+- 新教训：改造 findPlan 这类"槽位语义"函数前必须先全局查清槽位消费方（grep plan.proot 的所有 reader），否则隐含语义破坏是静默的。
+
+- **需求（用户定调）**：app 被卸载也不删除用户的项目文件。
+- **架构**：权威存储 = `/storage/emulated/0/DSH/{projects,sdcard}`（卸载不删、文件管理器可见）；guest 工作副本 = `/root/{projects,sdcard}`（内部树，引擎读写）。同步桥 v2：10s 双向、全递归（深度 12）、newer-mtime wins、**.part+rename 原子写（双向）**、**永不删除**、只碰两个专用目录（绝不全存储扫描）。工作副本纳入重刷 stash（`root/projects`、`root/sdcard`）——重刷与同步不再竞态（P0 两要素消除）。
+- **卸载恢复闭环**：卸载 → 内部副本消失 → 重装后首次同步 tick 从共享侧拉回全部项目。实测：HOST→guest（a.txt 16s 内出现在 guest）、guest→HOST（demo/b.txt 出现在共享侧）、无 .part 残留。
+- **验证纪律重申**：共享侧操作/验证必须用**普通 adb shell 域**（shell uid 对 FUSE 可写）；`run-as` 在 shell mountns 下对共享存储全部假阴性（uid 10300 的 FUSE 视图不在 shell mountns 里）——本次又踩了一次。
+- 已知残留：存储根目录有我三天测试的截图垃圾（a1-w14.png 等）——精确白名单已备好，等用户口头确认后清理（用户拒绝过一次，不再擅动）。
+- 同步语义边界：newer-wins 对"两端同时改同一文件"仍可能丢一边（无合并）；文档已明示这是镜像不是版本控制。
+
+- **用户报告**：解包过程中授予文件访问权 → 用户本地文件（图片、文档）被删。
+- **取证实况**：桥已把用户**整个存储**（271MB：DCIM/Documents/Download/Music…）拷进 `rootfs/root/sdcard`（内部树）；guest 侧测试垃圾（a1/a2.png、a3-*、README.txt）被 guest→host 方向**写到了用户存储根目录**——桥的双向写用户区是实证的。
+- **结构性危险（定性，不再带病运行）**：①内部树会被重刷整树删除——桥把用户文件拷进"随时会被删的树"；②copyAll 非原子（无 .part），重刷与拷贝竞态可产生半截文件，guest→host 方向 overwrite 可覆盖原件；③全存储范围双向同步=把用户数据当同步游戏。
+- **处置**：桥**整体禁用**（startStorageBridge 只打 P0 日志）；设备热修清理我在存储根的测试残留；**用户存储的 196MB 快照已抢救到 PC**（emu-assets/sdcard-rescue.tgz，2026-11-23 18:51）——用户报告丢失的文件先对照此快照。
+- **恢复设计门槛（未做前不许恢复任何同步）**：专用交换子目录（如 /storage/emulated/0/DSHExchange ⇄ rootfs 内专用目录）、单向明确语义、.part+rename 原子落盘、**永不**把用户文件放进会被重刷的树、永不整存储范围扫描。
+- 桥的设计教训一句话：**双向同步 + 会整树删除的目标 + 全范围扫描 = 数据丢失三要素，缺一都不该上**。
+
+- 现象：对话报 `Cannot find module '@deepseek-ai/node-addon-system-linux-arm64/package.json'`（require 栈指向 preload 树的 flock.js）。
+- 根因：rc.5 preload 是在 **PC（win32）** 上 hoisted 装的——平台可选依赖按平台门控被 pnpm 跳过；老 rc.1 树里有这个包是当年手工放进去的。设备更新层（在设备上装的）有它。会话工具经 NODE_PATH/解析链落到 preload 副本 → 缺包。
+- 热修（已生效）：从设备更新层 `dsh/node_modules/@deepseek-ai/node-addon-system-linux-arm64` 拷入 preload 树 → 重启 → `require('.../node-addon-system/lib/flock.js')` OK。
+- **生产构建铁律（b2/b1b）**：凡 PC 侧构建 preload，构建后**必须比对"设备侧同版本 hoisted 安装"的平台包清单**（`*linux-arm64*`、`*-linux-arm64-gnu` 等），缺的从 dist tar 设备侧或 npm tarball 补齐再打包。b4 应加此校验（TODO：b4 diff step）。教训：**"在 PC 上给 arm64 设备装依赖"天然缺平台可选包，每次都要补**。
+- 脚本小坑：`cmd && echo OK || echo ALREADY` 把 cp 失败也显示成 ALREADY——设备脚本里避免这种三段式，失败要显式报。
+- **adb 取二进制铁律**：`adb shell "run-as … cat …" > file` 走 PowerShell 文本重定向**必毁二进制**（LF/编码转换）；必须用 `adb exec-out "run-as … cat …" > file`（exec-out 不经 pty，字节保真）。本次 nas64.tgz 36KB 第一次拉毁、exec-out 重拉正常。
+- **新用户闭环（当日晚定案）**：修复后的 PC preload（补齐 arm64 平台包）→ b2 重打（tar 内 tar-scan 验证 `node-addon-system-linux-arm64/package.json` 命中 1 条）→ b4 → assemble → 真机新用户模拟（incoming 清空 + install -r）→ 自动种子/解包/LISTEN → **fresh 提取内 flock.js 加载 OK** + rc.5 + profile 完整。**新用户拿到的 APK 自此不再踩平台包缺失坑**。
+- 构建运维注意：本机 commit 已到 87% 时 gradle 大内存任务（资产 deflate）会随机失败——失败重跑即可（幂等）；长期方案是错峰构建或加 swap。
+
+## 终端 ENOENT（2026-11-23 晚：uv_os_get_passwd 按 uid 查不到）
+
+- 现象：新建终端报 `uv_os_get_passwd returned ENOENT`。
+- 根因：proot 不改 uid（change-id 破坏 FUSE），guest 内 `getuid()`=宿主 app uid；`/etc/passwd` 只有 root(0) 条目。libuv 的 `os.userInfo()` **按 euid 查 passwd**，查不到 → ENOENT。`getent passwd root` 按名字查能过——**是假阳性**，别被骗。
+- 修复（持久，AssetInstaller 解包后）：按 `Process.myUid()` 动态补 `dsh:x:<uid>:<uid>:…:/root:/bin/bash` 到 passwd+group（缺才补）；uid 因重装漂移所以必须运行时算。设备热修同款已验证 `userInfo OK: dsh /root`，终端链路解锁。
+
+- 现象：平板 GUI「插件 → 发现」读索引失败；PC 的 dsh 正常。
+- 根因（用户自己定位）：**PC 走了系统代理**，平板 guest 是裸网络直连——`cdn.jsdelivr.net`（默认索引源）CN 直连超时。guest 侧实测复现：jsdelivr ETIMEDOUT、npmmirror 可达。
+- 正路两条：平板挂代理同 PC 环境；或「索引源」里添加 CN 直连可达的镜像 URL。
+- 代码侧可选优化（未做）：失败文案提示"检查代理或换镜像源"；预置镜像候选列表。
+
 ## 后台存活（2026-11-23 定案：定制系统杀组 vs 卡片锁定）
 
 > 本节现象出自某厂商定制系统（定制 launcher + 定制内存清理器）。为免泄露测试机指纹，

@@ -15,7 +15,7 @@ WebView 加载 loopback 上的官方 Web GUI。设计依据见上级
 | 无 adb 资产引导（首启） | `SetupActivity.kt` | SAF 三入口（rootfs/校验清单/proot）+ 实时清单点 + `.part` 原子落位 + 就绪自动跳 GUI；**页内 JS 已过 mock-DOM 行为测试**（解析、亮灯、MB 标注、就绪跳转、状态播报） |
 | 开机自启 | `BootReceiver.kt`（startForegroundService）+ Manifest `BOOT_COMPLETED` | 已接 |
 | 明文流量白名单（仅 127.0.0.1/localhost） | `res/xml/network_security_config.xml` | 已接 |
-| 应用身份（图标 / 名称） | `res/mipmap-anydpi-v26|v33`（adaptive icon + 单色层）、`res/values/strings.xml`（默认 `DSH Pocket` / 简中 `口袋 DSH`） | 已接（规范见 [../brand/README.md](../brand/README.md)） |
+| 应用身份（图标 / 名称） | `res/mipmap-anydpi-v26|v33`（adaptive icon + 单色层）、`res/values/strings.xml`（`DSH Pocket`，无本地化译名） | 已接（规范见 [../brand/README.md](../brand/README.md)） |
 
 ## 三条硬约束（改动前必读）
 

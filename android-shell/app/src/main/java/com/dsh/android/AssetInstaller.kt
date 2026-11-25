@@ -38,6 +38,58 @@ object AssetInstaller {
     class StageException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
     fun incomingDir(ctx: Context) = File(ctx.getExternalFilesDir(null), "incoming")
+
+    /** Internal staging dir: app-owned and ALWAYS writable. After an uninstall
+     *  + reinstall the app FUSE view may not show shell-created files in the
+     *  external incoming at all (EACCES even on create — device-proven), so
+     *  the asset seed and findPlan fall back to here. */
+    fun internalIncomingDir(ctx: Context) = File(ctx.filesDir, "incoming")
+
+    /** PRODUCTION asset bundling: the APK ships the full engine set in assets/
+     *  (user requirement — new users must never hunt for files). On first run,
+     *  when neither incoming dir has a rootfs yet, copy the bundled trio into
+     *  the INTERNAL incoming (always writable — the external one is subject to
+     *  FUSE perm quirks after reinstall, device-proven). One-time; later
+     *  manual/official packages in either dir win by mtime. The WHOLE seed is
+     *  fail-safe: it must never crash the main thread (crashed the Activity and
+     *  the supervisor during the reinstall E2E). */
+    fun seedFromAssetsIfNeeded(ctx: Context) {
+        runCatching {
+            val external = incomingDir(ctx)
+            val hasRootfsExternal = external.listFiles { f: File -> f.isFile && f.name.contains("-rootfs.tar") }?.isNotEmpty() == true
+            val internal = internalIncomingDir(ctx)
+            if (!hasRootfsExternal) {
+                val hasRootfsInternal = internal.listFiles { f: File -> f.isFile && f.name.contains("-rootfs.tar") }?.isNotEmpty() == true
+                if (hasRootfsInternal) return
+                val am = ctx.assets
+                val bundled = runCatching { am.list("")?.toSet().orEmpty() }.getOrDefault(emptySet())
+                val needed = listOf("dsh-appliance-rootfs.tar", "proot-bundle.tar", "SHA256SUMS.txt")
+                if (!needed.all { it in bundled }) return // tiny build without assets → SetupActivity flow
+                internal.mkdirs()
+                needed.forEach { name ->
+                    val dst = File(internal, name)
+                    if (dst.isFile && dst.length() > 0) return@forEach
+                    val part = File(internal, "$name.part")
+                    android.util.Log.i("dsh-stage", "seeding $name from APK assets…")
+                    am.open(name).use { input ->
+                        part.outputStream().use { out ->
+                            input.copyTo(out, 1 shl 20)
+                        }
+                    }
+                    if (!part.renameTo(dst)) {
+                        // EXDEV guard (device lesson): same-volume rename should work;
+                        // if the fs refuses, copy+delete instead of dropping the seed.
+                        part.copyTo(dst, overwrite = true)
+                        part.delete()
+                    }
+                    android.util.Log.i("dsh-stage", "seeded $name (${dst.length()} bytes)")
+                }
+            }
+        }.onFailure {
+            android.util.Log.e("dsh-stage", "asset seed failed (non-fatal): ${it.message}")
+        }
+    }
+
     fun runtimeDir(ctx: Context) = File(ctx.filesDir, "runtime")
 
     fun isReady(ctx: Context): Boolean {
@@ -45,12 +97,31 @@ object AssetInstaller {
         return File(r, "proot/proot").canExecute() && File(r, "rootfs/usr").isDirectory
     }
 
-    /** Newest `*-rootfs.tar(.gz|.xz)` in incoming + optional proot + parsed SHA256SUMS. */
+    /** Newest `*-rootfs.tar(.gz|.xz)` across BOTH incoming dirs + optional proot
+     *  + parsed SHA256SUMS. The internal dir is the reliable fallback when the
+     *  external FUSE view is broken after reinstall (device-proven). The proot
+     *  bundle is chosen from the SAME dir as the selected rootfs (sums coherence). */
     fun findPlan(ctx: Context): Plan? {
-        val dir = incomingDir(ctx)
-        val rootfs = dir.listFiles { f: File ->
-            f.isFile && f.name.contains("-rootfs.tar")
-        }?.maxByOrNull { it.lastModified() } ?: return null
+        seedFromAssetsIfNeeded(ctx)
+        var best: File? = null
+        var bestDir: File? = null
+        var update: File? = null
+        for (dir in listOf(incomingDir(ctx), internalIncomingDir(ctx))) {
+            dir.listFiles { f: File -> f.isFile }?.forEach { f ->
+                if (f.name.contains("-rootfs.tar") && f.lastModified() > (best?.lastModified() ?: 0)) {
+                    best = f; bestDir = dir
+                }
+                if (f.name.startsWith("dsh-update-") && (f.name.endsWith(".tar") || f.name.endsWith(".tar.gz"))
+                    && f.lastModified() > (update?.lastModified() ?: 0)) update = f
+            }
+        }
+        val rootfs = best ?: return null
+        val dir = bestDir!!
+        // plan.proot is a PRE-EXTRACTED binary (legacy incoming layout) — the
+        // proot-bundle TAr is located separately by stageIfNeeded (bundleTar)
+        // and extracted there; selecting the tar here made the stage copy the
+        // raw archive AS the binary (shell executed tar headers, early-exit x6,
+        // HALT). Only a file literally named "proot" qualifies.
         val proot = File(dir, "proot").takeIf { it.isFile }
         val sums = File(dir, "SHA256SUMS.txt").takeIf { it.isFile }?.useLines { lines ->
             lines.mapNotNull { line ->
@@ -58,10 +129,6 @@ object AssetInstaller {
                 m.groupValues[2].substringAfterLast('/') to m.groupValues[1].lowercase()
             }.toMap()
         } ?: emptyMap()
-        val update = dir.listFiles { f: File ->
-            f.isFile && f.name.startsWith("dsh-update-") &&
-                (f.name.endsWith(".tar") || f.name.endsWith(".tar.gz"))
-        }?.maxByOrNull { it.lastModified() }
         return Plan(rootfs, proot, sums, update)
     }
 
@@ -159,9 +226,9 @@ object AssetInstaller {
         // Bundle integrity BEFORE touching the rootfs tree: a stale SHA256SUMS
         // (assets pushed out of sync) must never wipe a working, pre-baked tree
         // (twice destroyed 708 MB of baked node_modules on device).
-        val bundleTar = incomingDir(ctx).listFiles { f: File ->
-            f.isFile && f.name.startsWith("proot-bundle") && f.name.contains(".tar")
-        }?.maxByOrNull { it.lastModified() }
+        val bundleTar = listOf(incomingDir(ctx), internalIncomingDir(ctx))
+            .flatMap { dir -> dir.listFiles { f: File -> f.isFile && f.name.startsWith("proot-bundle") && f.name.contains(".tar") }?.toList() ?: emptyList() }
+            .maxByOrNull { it.lastModified() }
         bundleTar?.let { verifyOrThrow(it, it.name, plan.expected) }
         android.util.Log.i("dsh-stage", "verify-done")
 
@@ -183,6 +250,9 @@ object AssetInstaller {
         val preserve = listOf(
             "root/.dsh", "root/dsh-workspace", "root/.npmrc",
             "usr/local/dsh", "usr/local/bin/dsh",
+            // Workspace working copies live here now (fuse-bind is dead on
+            // A16 定制系统): losing them on re-stage destroys user projects.
+            "root/projects", "root/sdcard",
         )
         val stashed = preserve.filter { rel ->
             val src = File(old, rel)
@@ -210,6 +280,24 @@ object AssetInstaller {
         runCatching {
             val etc = File(old, "etc")
             if (etc.isDirectory) File(etc, "resolv.conf").writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
+        }
+        // uv_os_get_passwd: libuv looks up passwd by the REAL uid — proot does
+        // not fake uid (change-id breaks FUSE), so without an entry for the app
+        // uid, os.userInfo()/terminal creation die with ENOENT (device-proven).
+        // Uid shifts across reinstalls → compute from myUid here.
+        runCatching {
+            val etc = File(old, "etc")
+            if (etc.isDirectory) {
+                val uid = android.os.Process.myUid()
+                val pw = File(etc, "passwd")
+                if (pw.isFile && pw.readText().lineSequence().none { it.split(":").getOrNull(2) == uid.toString() }) {
+                    pw.appendText("dsh:x:$uid:$uid:Android app uid:/root:/bin/bash\n")
+                }
+                val gr = File(etc, "group")
+                if (gr.isFile && gr.readText().lineSequence().none { it.split(":").getOrNull(2) == uid.toString() }) {
+                    gr.appendText("dsh:x:$uid:\n")
+                }
+            }
         }
         // Replant stashed state (see stash above): user profiles (API keys!),
         // workspaces, the update layer and its bin shim.
