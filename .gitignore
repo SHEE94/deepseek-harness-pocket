@@ -43,3 +43,13 @@ brand/__pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+
+# local agent session memory and recordings: conversation transcripts,
+# tool output and paths. Personal by nature, never publish.
+.dsh/
+
+# prebuilt appliance assets copied next to the shell for APK bundling.
+# They are ~1.25 GB and reproducible from dist/ via scripts/b4-pack-assets.ps1,
+# so only the small manifest is tracked.
+android-shell/app/src/main/assets/*.tar
+android-shell/app/src/main/assets/*.tar.gz
