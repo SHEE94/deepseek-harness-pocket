@@ -193,6 +193,7 @@ class MainActivity : AppCompatActivity() {
         pm.menu.add(0, 3, 0, "导出诊断")
         pm.menu.add(0, 4, 0, "关于 / 版本")
         pm.menu.add(0, 5, 0, "查看配置文件")
+        pm.menu.add(0, 6, 0, "原生设置")
         pm.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> serviceAction(DshEngineService.ACTION_RETRY)
@@ -200,6 +201,7 @@ class MainActivity : AppCompatActivity() {
                 3 -> startActivity(Intent(this, DiagShareActivity::class.java))
                 4 -> toast("DSH ${engineVersion()}")
                 5 -> openProfileConfig()
+                6 -> startActivity(Intent(this, NativeSettingsActivity::class.java))
             }
             true
         }

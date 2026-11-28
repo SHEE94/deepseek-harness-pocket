@@ -3,4 +3,5 @@
     <!-- Launcher label. Product identity is English-only: no localized name.
          Brand spec: brand/README.md -->
     <string name="app_name">DSH Pocket</string>
+    <string name="a11y_desc">DSH 手机操控：让 DSH 看到屏幕内容并模拟手势操作手机</string>
 </resources>

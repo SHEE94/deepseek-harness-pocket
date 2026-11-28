@@ -145,7 +145,8 @@ class DshEngineService : Service() {
     private fun superviseLoop() {
         var backoffMs = 5_000L
         startStorageWatcher()
-        startStorageBridge()
+        nativeBridge.start()
+            startStorageBridge()
         // Halt is an operator-state, not an exit condition: park in 60s waits but
         // keep re-reading the ladder each turn (fixes the latch-in-sleep trap where
         // ACTION_RETRY arriving during the wait was consumed without effect).
@@ -262,9 +263,15 @@ class DshEngineService : Service() {
      *  tick pulls everything back from the shared side. */
     private val bridgePairs: List<Pair<File, File>> by lazy {
         val shared = File("/storage/emulated/0/DSH")
+        // The GUI/engine write user projects to the EXTERNAL projects dir (the
+        // engine's own host mapping — device-proven: lite game/default live
+        // there). The internal root/projects copy is an orphan the guest never
+        // writes; pairing against it synced an empty dir while real projects
+        // stayed invisible. Pair the SHARED store with the REAL landing zone.
+        val extProjects = File(getExternalFilesDir(null), "projects")
         val gRoot = File(AssetInstaller.runtimeDir(this), "rootfs/root")
         listOf(
-            File(shared, "projects") to File(gRoot, "projects"),
+            File(shared, "projects") to extProjects,
             File(shared, "sdcard") to File(gRoot, "sdcard"),
         )
     }
@@ -321,6 +328,10 @@ class DshEngineService : Service() {
             }
         }
     }
+    // lazy: applicationContext is NOT attached during Service field-init —
+    // an eager initializer NPE'd onCreate (device-proven).
+    private val nativeBridge by lazy { NativeBridgeServer(applicationContext.filesDir) }
+
     private var bridgeThread: Thread? = null
 
     private fun awaitFuseView(): Boolean {
@@ -493,8 +504,16 @@ class DshEngineService : Service() {
                                     f.canonicalPath.startsWith(root.canonicalPath)
                                 }.getOrDefault(false)
                                 if (inside && f.isFile) showFileInViewer(f, guestPath)
+                                else if (inside && f.isDirectory) revealGuestDir(guestPath)
                                 else android.util.Log.i("dsh-loop", "open request rejected/missing: $guestPath")
                             }
+                        }
+                        // DSH_ANDROID_REVEAL:<guest abs dir> — 「在文件管理器中显示」:
+                        // map the workspace root to its user-visible /DSH/ location
+                        // and open the system file manager AT that folder.
+                        if (line.startsWith("DSH_ANDROID_REVEAL:")) {
+                            val guestPath = line.removePrefix("DSH_ANDROID_REVEAL:").trim()
+                            if (guestPath.startsWith("/")) revealGuestDir(guestPath)
                         }
                     }
                 }
@@ -688,6 +707,46 @@ class DshEngineService : Service() {
         // incoming/ remain an ops fallback handled by the storage watcher.
         runCatching { proc?.destroy() } // next supervision cycle spawns the new engine
         return "DSH 已更新 $local → $effective，引擎正在重启"
+    }
+
+    /** Guest dir → user-visible location. Only the two workspace roots have a
+     *  shared-storage view (projects/sdcard sync mirrors); internal-only paths
+     *  (.dsh …) have no file-manager view and report so. */
+    private fun sharedLocationFor(guestPath: String): File? {
+        val root = File("/storage/emulated/0/DSH")
+        return when {
+            guestPath == "/root/projects" || guestPath.startsWith("/root/projects/") ->
+                File(root, "projects" + guestPath.removePrefix("/root/projects"))
+            guestPath == "/root/sdcard" || guestPath.startsWith("/root/sdcard/") ->
+                File(root, "sdcard" + guestPath.removePrefix("/root/sdcard"))
+            else -> null
+        }
+    }
+
+    /** Open a folder in the system file manager via DocumentsContract (the
+     *  Files app honors ACTION_VIEW on an externalstorage document dir). */
+    private fun revealGuestDir(guestPath: String) {
+        val real = sharedLocationFor(guestPath)
+        if (real == null) {
+            updateNotification("该目录在内部存储中，无文件管理器视图")
+            android.util.Log.i("dsh-loop", "reveal skipped (no shared view): $guestPath")
+            return
+        }
+        if (!real.isDirectory) real.mkdirs()
+        runCatching {
+            val doc = android.provider.DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                "primary:" + real.absolutePath.removePrefix("/storage/emulated/0/"),
+            )
+            val i = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(doc, android.provider.DocumentsContract.Document.MIME_TYPE_DIR)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
+            android.util.Log.i("dsh-loop", "revealed $guestPath -> ${real.absolutePath}")
+        }.onFailure {
+            android.util.Log.e("dsh-loop", "reveal failed: ${it.message}")
+            updateNotification("打开文件管理器失败：${it.message?.take(60)}")
+        }
     }
 
     /** In-app viewer for "打开配置文件" (no OS file viewer on Android): read the

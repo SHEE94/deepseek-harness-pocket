@@ -5,15 +5,15 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
 
 /** Transparent dialog-activity showing AND editing a guest config file
  *  (opened via the DSH_ANDROID_OPEN bridge, or the shell's 查看配置文件 menu).
- *  The guest path maps to the host file under runtime/rootfs (containment
- *  validated — the same rule the pump applies). */
+ *  Layout: fixed-height bottom box — title, self-scrolling EditText (weight 1),
+ *  button row. The EditText scrolls its own content, so long files never push
+ *  the buttons off-screen (the ScrollView/weight mix-match bug, device-proven). */
 class FileViewerActivity : Activity() {
     private lateinit var hostFile: File
 
@@ -29,19 +29,19 @@ class FileViewerActivity : Activity() {
             text = guestPath
             setTextColor(0xFFC7D2DC.toInt())
             textSize = 13f
-            setPadding(48, 64, 48, 16)
+            setPadding(48, 48, 48, 16)
         }
         val body = EditText(this).apply {
             setText(content.ifBlank { "" })
             setTextColor(0xFFE6EDF3.toInt())
-            setBackgroundColor(0xFF12171D.toInt())
-            highlightColor = 0xFF3FB950.toInt()
             setTextSize(12f)
             typeface = android.graphics.Typeface.MONOSPACE
             setPadding(48, 8, 48, 8)
+            setBackgroundColor(0xFF12171D.toInt())
             gravity = android.view.Gravity.TOP
             isVerticalScrollBarEnabled = true
-            minLines = 12
+            // let the EditText scroll internally: no outer ScrollView
+            movementMethod = android.text.method.ArrowKeyMovementMethod()
         }
         val save = Button(this).apply {
             text = "保存"
@@ -67,24 +67,22 @@ class FileViewerActivity : Activity() {
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.END
-            setPadding(48, 8, 48, 16)
+            setPadding(48, 8, 48, 24)
             addView(close)
             addView(save)
-        }
-        val scroll = ScrollView(this).apply {
-            addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
         }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xF212171D.toInt())
             addView(title)
-            addView(scroll)
+            addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
             addView(buttons)
         }
         val wrap = android.widget.FrameLayout(this).apply {
             setBackgroundColor(0x66000000.toInt())
             addView(box, android.widget.FrameLayout.LayoutParams(
-                -1, (resources.displayMetrics.heightPixels * 0.82).toInt()))
+                -1, (resources.displayMetrics.heightPixels * 0.78).toInt(),
+                android.view.Gravity.BOTTOM))
         }
         setContentView(wrap)
         // tap outside the box to close

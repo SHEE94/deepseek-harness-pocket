@@ -131,7 +131,7 @@
 
 ## 存储模型 v2（2026-11-24 定案：项目文件独立于 app 生命周期）
 
-## "## 卸载重装 E2E（2026-11-24 晚：两处新 bug 实战暴露并修复）
+## 卸载重装 E2E（2026-11-24 晚：两处新 bug 实战暴露并修复）
 
 undefined" Toast 噪音（2026-11-24 晚：诊断通道误触发 → 双端守卫）
 
@@ -209,3 +209,40 @@ undefined" Toast 噪音（2026-11-24 晚：诊断通道误触发 → 双端守�
 - **定案架构（22 条）**：存储同步桥——host 侧双向 mtime 差量同步（10s 周期，`DshEngineService.startStorageBridge/syncDir`）：guest 树（rootfs 内 ext4，快）⇄ host 侧（app external projects + FUSE 共享存储）。实测 host→guest ≤25s、guest→host ≤35s，双向可用。spawn 侧同时保留：目标目录兜底 mkdir（fresh stage 由旧 APK 完成时防"No such file"）+ awaitFuseView 启动门。
 - **pm clear 代价（23 条）**：profile/API key + Android/data 全清；**先备份再 clear**（铁律，备份产物别留在仓库里）；rootfs 三件套重推。
 - 设备（24 条）：重启后无线调试自动关，重开需手动 + 新配对码 + mdns 取新端口（端口每次漂移，脚本里别硬写）。
+
+
+## 手机操控（无障碍）原生桥（2026-11-25 立项并交付原生端）
+
+## 重刷回退综合症与终局（2026-11-25：所有补丁必须烤进 tar）
+
+- **综合症**：设备侧热修在每次重装/重刷后被回退到烤箱时状态——根因是 tar 只在特定时点烤过，之后的 PC 树补丁不在 tar 里。今天下午的目录表注入/workspaceDesktop/按钮解锁补丁全部被 16:2x 的重装重刷抹掉，"按钮还是灰"的真实原因就是补丁丢失而非判定错误。
+- **终局纪律**：**guest 侧补丁一律打在 PC dist 树（唯一事实源）→ 立即 b2 烤 tar → b4 → assemble → 部署**。设备侧只做紧急热修，且热修后必须安排重烤。验证清单脚本（vall.sh）逐项 grep 确认每个补丁在 fresh 树中存在。
+- **当前烤入清单（全部验证 present）**：native-command REVEAL+canOpen+openPath 三分支；open-in-app launchDetachedApp 分支 + filemanager 固定定位器目录项 + [oia] 诊断；api-session-controller workspaceDesktop Android 无条件可用；client-ui-settings reportError 噪音守卫。
+- **项目文件同步修正**：同步桥 #1 对已改指引擎真实落点（外部 projects）——lite game/pelican-bike.html 已在 /DSH/projects（文件管理器可见、卸载不丢）。教训：同步对必须跟随"数据真实落点"，不是"设计上应该在的位置"（引擎自身有 host 映射，guest 内部目录是孤儿）。
+
+- 架构定案：原生三件套 + DSH 侧插件包装（下一轮）。
+  1. DshAccessibilityService：窗口树 dump（深度/节点封顶）+ 手势注入（tap/swipe/longpress，dispatchGesture）+ 截屏（takeScreenshot，hardware bitmap 需拷 software 才能 compress）+ 全局键 + 焦点可编辑节点 setText。
+  2. NativeBridgeServer：127.0.0.1:3081 环回专用 + X-Token 校验（token 写 files/runtime/native-token.txt，guest 经 runtime bind 读取）。路由 /health /tree /screenshot /tap /longpress /swipe /text /key。
+  3. NativeSettingsActivity：原生设置中心（无障碍状态 + 跳系统设置；为悬浮窗/通知监听等预留）；顶栏新增原生设置入口。
+- 验证全绿：宿主 curl ok=true/a11y=false/screenApi=true；无 token 403；guest fetch 127.0.0.1:3081 可达（proot 与宿主共享 loopback，bind runtime 目录读 token）。
+- 三个实现坑（已修）：Service 字段初始化时 applicationContext 为 NULL 必须 lazy；本 SDK android-35 平台 jar 残缺（TakeScreenshotRequest 缺失）用 int-displayId 旧重载；TakeScreenshotCallback 需 object 表达式显式 override。
+- 用户启用路径：原生设置 -> 系统无障碍设置 -> 启用 DSH 手机操控。a11y 未启用时 /tree /tap 等返回 503，/health 始终可用。
+- 下一轮：DSH 侧插件（android_screen/tap/swipe/key/text 工具）包装此 HTTP API。（2026-11-25 已完成，见下节）
+
+## DSH 侧插件 @dsh/android-bridge（2026-11-25 完成：8 个工具上线）
+
+- **格式**（从 @restregular/dsh-memory 学得）：profile node_modules 下真包 + package.json(type:module, exports ./lib/index.js, dsh:{}) + cordis.patch.yml(`- insert: - id: <name> name: <pkg>`) + lib/index.js（`export const name / inject=['tools'] / apply(ctx)`，工具经 `ctx.tools.register(defineTool({name, description, parameters, output:{schema,render}, execute}))`）。
+- **安装位置**：`/root/.dsh/profiles/web/node_modules/@dsh/android-bridge/`（stash 保护，重刷/更新保留）；insert 行追加进 profile 的 cordis.patch.yml。
+- **token 传递**：原生桥把 token 镜像写 `runtime/rootfs/root/.dsh/native-token.txt`，插件 fs 读它（guest 不 bind runtime 也能拿到）。
+- **8 个工具**：android_state / android_screen_tree（控件树，模型据此选坐标）/ android_screenshot（PNG 存 /root/sdcard/dsh-screen.png）/ android_tap / android_swipe / android_longpress / android_text（焦点输入框 setText）/ android_key（back/home/recents/notifications）。加载验证：dsh-web.log `[android-bridge] tools registered (8)`。
+- **bind 结论再钉一次**：带与运行引擎相同 argv 的 proot 实测——`--bind=/storage/emulated/0:/root/sdcard` 静默跳过，guest 写落在内部目录（real root 无痕迹）。v2 同步桥仍是唯一传输。
+- **坑**：run-as 下 heredoc 建临时文件失败（/data/local 属 shell uid）——追加文件用 printf '%s\n' >> 而不是 heredoc。
+- **用法**：用户在「原生设置」启用无障碍后，对话里让 DSH 调 android_* 工具即可操控手机。
+
+
+## 原生文件管理器打通（2026-11-25：菜单按钮灰 → 全链亮起）
+
+- 按钮灰的根因：前端调 canOpenNativePath()——Android 是 linux 且无 DISPLAY → false → UI 禁用菜单。且「在文件管理器中显示」走 revealNativePath（独立函数，不经过 openNativePathWithIntent 的 Android 分支）。
+- 修复三件：canOpenNativePath 在 DSH_ANDROID=1 时 return true（按钮亮起）；revealNativePath 加 Android 分支发 DSH_ANDROID_REVEAL:<path>；壳层泵新增 REVEAL 处理——guest 路径映射到用户可见位置（/root/projects→/DSH/projects、/root/sdcard→/DSH/sdcard）→ ACTION_VIEW + DocumentsContract(externalstorage, primary:<rel>) MIME_TYPE_DIR 打开系统文件管理器该目录。
+- 实测：泵入 REVEAL 行 → 日志 revealed /root/projects -> /storage/emulated/0/DSH/projects → 系统打开方式弹窗（文件/Acode/WPS 可选，选一次记住）。内部-only 路径（.dsh 等）无共享视图 → 通知提示。
+- 注意：DSH_ANDROID_OPEN 对目录时改走 revealGuestDir（FileViewerActivity 只吃文件）。

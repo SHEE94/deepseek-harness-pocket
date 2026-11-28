@@ -58,6 +58,26 @@
             android:name=".SetupActivity"
             android:exported="false" />
 
+        <!-- Native-level settings hub (accessibility today; extensible). -->
+        <activity
+            android:name=".NativeSettingsActivity"
+            android:exported="false"
+            android:label="原生设置" />
+
+        <!-- Phone-control bridge: window tree + gestures + screenshots. -->
+        <service
+            android:name=".DshAccessibilityService"
+            android:exported="true"
+            android:label="DSH 手机操控"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
