@@ -4,9 +4,29 @@
 # tars with exact names that findPlan/verify expect. APK ~370MB (zip-level
 # deflate) - the user explicitly required bundling over size savings.
 $ErrorActionPreference = 'Stop'
+
 $root = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $root 'dist'
 $assets = Join-Path $root 'android-shell\app\src\main\assets'
+
+# PLATFORM-PACKAGE GATE (device-proven iron rule): a Windows-side preload build
+# skips linux-arm64 optional deps by platform gating, and the appliance dies on
+# the device with Cannot find module <...linux-arm64...>. Verify the canonical
+# set before packing; a local PC tree that lost them fails LOUD here.
+# Paths are as-deployed: node-addon-system is SCOPED under @deepseek-ai, the
+# require-builtin one is UNSCOPED at node_modules top level (device layout).
+$nm = Join-Path $root 'dist\guest-preload\node_modules'
+$requiredPlatformPkgs = @(
+  '@deepseek-ai/node-addon-system-linux-arm64',
+  'node-addon-require-builtin-linux-arm64-gnu'
+)
+$missing = $requiredPlatformPkgs | Where-Object {
+  -not (Test-Path (Join-Path $nm "$_\package.json"))
+}
+if ($missing) {
+  throw ("platform packages missing from dist\guest-preload (PC build skips them by platform gating - restore them from a device-side install or npm tarball): " + ($missing -join ', '))
+}
+Write-Host ("[b4] platform-package gate passed: " + ($requiredPlatformPkgs -join ", "))
 
 # Python interpreter: $env:DSH_PYTHON, else the DSH bundled runtime, else PATH.
 $py = $null
