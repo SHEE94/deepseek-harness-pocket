@@ -1,0 +1,11 @@
+{
+  "name": "@dsh/android-bridge",
+  "version": "0.1.0",
+  "description": "DSH 手机操控：把原生无障碍桥(127.0.0.1:3081)包装成模型工具。",
+  "type": "module",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {}
+}

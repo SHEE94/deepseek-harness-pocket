@@ -299,6 +299,33 @@ object AssetInstaller {
                 }
             }
         }
+        // Replay the bundled @dsh/android-bridge plugin into the profile:
+        // pnpm operations prune manually-placed node_modules dirs (device-proven),
+        // so every stage re-copies the plugin files and re-asserts its loader
+        // insert line. No-op when the profile dir has not been created yet.
+        runCatching {
+            val profile = File(old, "root/.dsh/profiles/web")
+            if (!profile.isDirectory) return@runCatching
+            val dst = File(profile, "node_modules/@dsh/android-bridge")
+            dst.mkdirs()
+            val pluginFiles = listOf(
+                Pair("android-bridge/package.json", "package.json"),
+                Pair("android-bridge/cordis.patch.yml", "cordis.patch.yml"),
+                Pair("android-bridge/lib/index.js", "lib/index.js"),
+            )
+            pluginFiles.forEach { (assetRel, targetRel) ->
+                ctx.assets.open(assetRel).use { input ->
+                    val out = File(dst, targetRel)
+                    out.parentFile?.mkdirs()
+                    input.copyTo(out.outputStream(), 1 shl 16)
+                }
+            }
+            val patch = File(profile, "cordis.patch.yml")
+            if (patch.isFile && !patch.readText().contains("dsh-android-bridge")) {
+                patch.appendText("\n- insert:\n    - id: dsh-android-bridge\n      name: '@dsh/android-bridge'\n")
+            }
+            android.util.Log.i("dsh-stage", "android-bridge plugin replayed")
+        }
         // Replant stashed state (see stash above): user profiles (API keys!),
         // workspaces, the update layer and its bin shim.
         for (rel in stashed) {

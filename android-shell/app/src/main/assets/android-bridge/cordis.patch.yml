@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-android-bridge
+      name: '@dsh/android-bridge'
